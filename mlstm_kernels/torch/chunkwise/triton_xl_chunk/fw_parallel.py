@@ -61,7 +61,7 @@ def mlstm_chunkwise__parallel_fw_Hintra(
     )
 
     if siz_b_DHHV is None:
-        siz_b_DHHV = get_head_dim_block_size(head_dim=DHHV, min_block_size=128)
+        siz_b_DHHV = get_head_dim_block_size(head_dim=DHHV, min_block_size=64)
     else:
         siz_b_DHHV = siz_b_DHHV
 
@@ -80,7 +80,8 @@ def mlstm_chunkwise__parallel_fw_Hintra(
     vecN_out = torch.empty(B, NH, S, device=matQ.device, dtype=output_dtype)
     vecM_out = torch.empty(B, NH, S, device=matQ.device, dtype=output_dtype)
 
-    vecB = compute_chunkwise_log_gates_vecB(vecF=vecF, chunk_size=chunk_size)
+    logF = torch.nn.functional.logsigmoid(vecF)
+    vecB = compute_chunkwise_log_gates_vecB(logF=logF, chunk_size=chunk_size)
 
     grid = (num_b_DHHV, num_b_LQ, NC * B * NH)
     # print("grid(num_b_DHHV, num_b_LQ, NC*B*NH)", grid)
@@ -92,6 +93,7 @@ def mlstm_chunkwise__parallel_fw_Hintra(
         vecN_states=vecN_states,
         scaMinter_states=scaMinter_states,
         vecI=vecI,
+        logF=logF,
         vecB=vecB,
         matHout=matH_out,
         vecNout=vecN_out,

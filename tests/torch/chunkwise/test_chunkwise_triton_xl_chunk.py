@@ -42,8 +42,8 @@ def test_triton_chunkwise_xl_chunk_vs_native_parallel_stablef_fp32(
         DHQK=DHQK,
         DHHV=DHHV,
         dtype=torch.float32,
-        atol_fw=2e-2,
-        rtol_fw=5e-2,
+        atol_fw=1e-2,
+        rtol_fw=1.3e-6,
         atol_fwbw=42e-1,  # we need to increase this tolerance for vecF.grad (max diff val 0.267...)
         rtol_fwbw=0.5,
         vmax=1e-3,

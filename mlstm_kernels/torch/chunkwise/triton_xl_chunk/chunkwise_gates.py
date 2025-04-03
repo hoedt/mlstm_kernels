@@ -49,17 +49,16 @@ def compute_chunkwise_log_gates_vecB_vecA(
 
 @torch.compile
 def compute_chunkwise_log_gates_vecB(
-    vecF: torch.Tensor,  # (B, NH, S)
+    logF: torch.Tensor,  # (B, NH, S)
     chunk_size: int,
 ):
-    B, NH, S = vecF.shape
+    B, NH, S = logF.shape
     assert S % chunk_size == 0, f"S={S} is not divisible by chunk_size={chunk_size}"
     NC = S // chunk_size
     L = chunk_size
 
     # compute vecB
-    vecF_logsig = logsigmoid(vecF.to(dtype=torch.float32))
-    vecF_logsig_chunked = rearrange(vecF_logsig, "b nh (nc l) -> b nh nc l", nc=NC, l=L)
+    vecF_logsig_chunked = rearrange(logF, "b nh (nc l) -> b nh nc l", nc=NC, l=L)
     vecB = vecF_logsig_chunked.cumsum(dim=-1)
 
     return vecB
