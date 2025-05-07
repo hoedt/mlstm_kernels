@@ -59,6 +59,61 @@ def mlstm_parallel_bw(
     vecF_cs = torch.nn.functional.logsigmoid(vecF.to(dtype=torch.float32)).cumsum(-1)
     ## ? end preprocessing
 
+    grid_dQ = lambda args: (
+        triton.cdiv(SL, args["BLOCK_Q"]),
+        BS * NH,
+        1,
+    )
+    # fix grid for debugging
+    # grid_dQ = lambda args: (
+    #     triton.cdiv(SL, BLOCK_Q_dQ),
+    #     BS * NH,
+    #     1,
+    # )
+    # print(f"Triton grid: {grid(None)}, BLOCK_Q: {BLOCK_Q}, BLOCK_KV: {BLOCK_KV}")
+
+    mlstm_parallel_bw_dQ_kernel[grid_dQ](
+        matDeltaHtilde=matDeltaHtilde.contiguous(),
+        matQ=matQ.contiguous(),
+        matK=matK.contiguous(),
+        matV=matV.contiguous(),
+        vecI=vecI.contiguous(),
+        vecF_cs=vecF_cs.contiguous(),
+        vecM=vecM.contiguous(),
+        vecL=vecL.contiguous(),
+        qk_scale=HEAD_DIM_Q**0.5,
+        matDeltaQ=matDeltaQ,
+        matDeltaK=matDeltaK,
+        matDeltaV=matDeltaV,
+        vecDeltaI=vecDeltaI,
+        stride_dhtz=matDeltaHtilde.stride(0),
+        stride_dhth=matDeltaHtilde.stride(1),
+        stride_dhts=matDeltaHtilde.stride(2),
+        stride_dhtd=matDeltaHtilde.stride(3),
+        stride_qz=matQ.stride(0),
+        stride_qh=matQ.stride(1),
+        stride_qs=matQ.stride(2),
+        stride_qd=matQ.stride(3),
+        stride_kz=matK.stride(0),
+        stride_kh=matK.stride(1),
+        stride_ks=matK.stride(2),
+        stride_kd=matK.stride(3),
+        stride_vz=matV.stride(0),
+        stride_vh=matV.stride(1),
+        stride_vs=matV.stride(2),
+        stride_vd=matV.stride(3),
+        stride_ifml_z=vecF_cs.stride(0),
+        stride_ifml_h=vecF_cs.stride(1),
+        stride_ifml_s=vecF_cs.stride(2),
+        Z=BS,
+        H=NH,
+        N_CTX=SL,
+        HEAD_DIM=HEAD_DIM_K,
+        EPS=eps,
+        # BLOCK_Q=BLOCK_Q_dQ,
+        # BLOCK_KV=BLOCK_KV_dQ,
+    )
+
     grid_dKdV = lambda args: (
         triton.cdiv(SL, args["BLOCK_KV"]),
         BS * NH,
@@ -113,61 +168,6 @@ def mlstm_parallel_bw(
         EPS=eps,
         # BLOCK_Q=BLOCK_Q_dKdV,
         # BLOCK_KV=BLOCK_KV_dKdV,
-    )
-
-    grid_dQ = lambda args: (
-        triton.cdiv(SL, args["BLOCK_Q"]),
-        BS * NH,
-        1,
-    )
-    # fix grid for debugging
-    # grid_dQ = lambda args: (
-    #     triton.cdiv(SL, BLOCK_Q_dQ),
-    #     BS * NH,
-    #     1,
-    # )
-    # print(f"Triton grid: {grid(None)}, BLOCK_Q: {BLOCK_Q}, BLOCK_KV: {BLOCK_KV}")
-
-    mlstm_parallel_bw_dQ_kernel[grid_dQ](
-        matDeltaHtilde=matDeltaHtilde.contiguous(),
-        matQ=matQ.contiguous(),
-        matK=matK.contiguous(),
-        matV=matV.contiguous(),
-        vecI=vecI.contiguous(),
-        vecF_cs=vecF_cs.contiguous(),
-        vecM=vecM.contiguous(),
-        vecL=vecL.contiguous(),
-        qk_scale=HEAD_DIM_Q**0.5,
-        matDeltaQ=matDeltaQ,
-        matDeltaK=matDeltaK,
-        matDeltaV=matDeltaV,
-        vecDeltaI=vecDeltaI,
-        stride_dhtz=matDeltaHtilde.stride(0),
-        stride_dhth=matDeltaHtilde.stride(1),
-        stride_dhts=matDeltaHtilde.stride(2),
-        stride_dhtd=matDeltaHtilde.stride(3),
-        stride_qz=matQ.stride(0),
-        stride_qh=matQ.stride(1),
-        stride_qs=matQ.stride(2),
-        stride_qd=matQ.stride(3),
-        stride_kz=matK.stride(0),
-        stride_kh=matK.stride(1),
-        stride_ks=matK.stride(2),
-        stride_kd=matK.stride(3),
-        stride_vz=matV.stride(0),
-        stride_vh=matV.stride(1),
-        stride_vs=matV.stride(2),
-        stride_vd=matV.stride(3),
-        stride_ifml_z=vecF_cs.stride(0),
-        stride_ifml_h=vecF_cs.stride(1),
-        stride_ifml_s=vecF_cs.stride(2),
-        Z=BS,
-        H=NH,
-        N_CTX=SL,
-        HEAD_DIM=HEAD_DIM_K,
-        EPS=eps,
-        # BLOCK_Q=BLOCK_Q_dQ,
-        # BLOCK_KV=BLOCK_KV_dQ,
     )
 
     ## ? postprocessing
