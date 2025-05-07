@@ -26,7 +26,7 @@ def _mlstm_parallel_fwbw_generator(autocast_kernel_dtype=torch.float16) -> Calla
             vecF: torch.Tensor,
             eps: float = 1e-6,
         ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-            matH, vecM, vecN = mlstm_parallel_fw(
+            matH, vecM, vecL = mlstm_parallel_fw(
                 matQ=matQ,
                 matK=matK,
                 matV=matV,
@@ -34,6 +34,7 @@ def _mlstm_parallel_fwbw_generator(autocast_kernel_dtype=torch.float16) -> Calla
                 vecF=vecF,
                 eps=eps,
             )
+            vecN = torch.maximum(torch.abs(vecL), torch.exp(-vecM))
             ctx.save_for_backward(matQ, matK, matV, vecI, vecF, vecM, vecN)
             return matH, vecM, vecN
 

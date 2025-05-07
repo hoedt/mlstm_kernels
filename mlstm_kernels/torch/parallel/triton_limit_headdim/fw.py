@@ -54,7 +54,7 @@ def mlstm_parallel_fw(
 
     matH = torch.empty_like(matQ)
 
-    vecN = torch.zeros(
+    vecL = torch.zeros(
         (matQ.shape[0], matQ.shape[1], matQ.shape[2]),
         device=matQ.device,
         dtype=torch.float32,
@@ -77,7 +77,7 @@ def mlstm_parallel_fw(
         vecF_cs=vecF_cs.contiguous(),
         qk_scale=HEAD_DIM_Q**0.5,
         matH=matH,
-        vecN=vecN,
+        vecL=vecL,
         vecM=vecM,
         stride_qz=matQ.stride(0),
         stride_qh=matQ.stride(1),
@@ -95,9 +95,9 @@ def mlstm_parallel_fw(
         stride_hh=matH.stride(1),
         stride_hm=matH.stride(2),
         stride_hn=matH.stride(3),
-        stride_ifmn_z=vecF_cs.stride(0),
-        stride_ifmn_h=vecF_cs.stride(1),
-        stride_ifmn_m=vecF_cs.stride(2),
+        stride_ifml_z=vecF_cs.stride(0),
+        stride_ifml_h=vecF_cs.stride(1),
+        stride_ifml_m=vecF_cs.stride(2),
         Z=BS,
         H=NH,
         N_CTX=SL,
@@ -108,4 +108,4 @@ def mlstm_parallel_fw(
         EPS=eps,
     )
 
-    return matH, vecM, vecN
+    return matH, vecM, vecL
