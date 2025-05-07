@@ -82,7 +82,7 @@ def mlstm_parallel_fw_kernel(
     qk_scale,
     matH,  #
     vecM,
-    vecN,
+    vecL,
     stride_qz,
     stride_qh,
     stride_qm,
@@ -99,9 +99,9 @@ def mlstm_parallel_fw_kernel(
     stride_hh,
     stride_hm,
     stride_hn,  #
-    stride_ifmn_z,
-    stride_ifmn_h,
-    stride_ifmn_m,
+    stride_ifml_z,
+    stride_ifml_h,
+    stride_ifml_m,
     Z,
     H,
     N_CTX,  #
@@ -117,8 +117,8 @@ def mlstm_parallel_fw_kernel(
     off_z = off_hz // H
     off_h = off_hz % H
     qkv_offset = off_z.to(tl.int64) * stride_qz + off_h.to(tl.int64) * stride_qh
-    ifmn_offset = (
-        off_z.to(tl.int64) * stride_ifmn_z + off_h.to(tl.int64) * stride_ifmn_h
+    ifml_offset = (
+        off_z.to(tl.int64) * stride_ifml_z + off_h.to(tl.int64) * stride_ifml_h
     )
 
     # block pointers
@@ -174,7 +174,7 @@ def mlstm_parallel_fw_kernel(
 
     # load vecF_cs: ifmn_offset defines the proper batch-head, q_offset defines the location
     # in the sequence for the current thread block
-    vecF_cs_chunkQ_ptr = vecF_cs + ifmn_offset + q_offset + tl.arange(0, BLOCK_Q)
+    vecF_cs_chunkQ_ptr = vecF_cs + ifml_offset + q_offset + tl.arange(0, BLOCK_Q)
     vecF_cs_chunkQ = tl.load(vecF_cs_chunkQ_ptr)
     vecF_cs_chunkQ = vecF_cs_chunkQ.to(tl.float32)
 
@@ -204,7 +204,7 @@ def mlstm_parallel_fw_kernel(
 
         # ? -- create gate matrix tile D --
         # load vecF_cs_chunkKV
-        vecF_cs_vecI_chunkKV_offset = ifmn_offset + start_n + tl.arange(0, BLOCK_KV)
+        vecF_cs_vecI_chunkKV_offset = ifml_offset + start_n + tl.arange(0, BLOCK_KV)
         vecF_cs_chunkKV_ptr = vecF_cs + vecF_cs_vecI_chunkKV_offset
         vecF_cs_chunkKV = tl.load(vecF_cs_chunkKV_ptr)
         vecF_cs_chunkKV = vecF_cs_chunkKV.to(tl.float32)
@@ -267,7 +267,7 @@ def mlstm_parallel_fw_kernel(
 
     # epilogue
     tl.store(H_block_ptr, h_out.to(matH.type.element_ty))
-    vecM_ptr = vecM + ifmn_offset + q_offset + tl.arange(0, BLOCK_Q)
-    vecN_ptr = vecN + ifmn_offset + q_offset + tl.arange(0, BLOCK_Q)
+    vecM_ptr = vecM + ifml_offset + q_offset + tl.arange(0, BLOCK_Q)
+    vecL_ptr = vecL + ifml_offset + q_offset + tl.arange(0, BLOCK_Q)
     tl.store(vecM_ptr, m_old.to(vecM.type.element_ty))
-    tl.store(vecN_ptr, n_old.to(vecN.type.element_ty))
+    tl.store(vecL_ptr, l_old.to(vecL.type.element_ty))
