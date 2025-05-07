@@ -37,6 +37,7 @@ def mlstm_parallel_bw_dQ_kernel(
     matDeltaK,
     matDeltaV,
     vecDeltaI,
+    vecAux,
     stride_dhtz,
     stride_dhth,
     stride_dhts,
@@ -56,6 +57,9 @@ def mlstm_parallel_bw_dQ_kernel(
     stride_ifml_z,
     stride_ifml_h,
     stride_ifml_s,
+    stride_aux_z,
+    stride_aux_h,
+    stride_aux_s,
     Z,
     H,
     N_CTX,  #
@@ -81,6 +85,9 @@ def mlstm_parallel_bw_dQ_kernel(
     )
     ifml_batchhead_offset = (
         off_z.to(tl.int64) * stride_ifml_z + off_h.to(tl.int64) * stride_ifml_h
+    )
+    aux_batchhead_offset = (
+        off_z.to(tl.int64) * stride_aux_z + off_h.to(tl.int64) * stride_aux_h
     )
 
     # input block pointers
@@ -131,6 +138,14 @@ def mlstm_parallel_bw_dQ_kernel(
         block_shape=(BLOCK_Q, HEAD_DIM),
         order=(1, 0),
     )
+    vecAux_block_ptr = tl.make_block_ptr(
+        base=vecAux + aux_batchhead_offset,
+        shape=(N_CTX, 1),
+        strides=(stride_aux_s, 0),
+        offsets=(qIdx * BLOCK_Q, 0),
+        block_shape=(BLOCK_Q, 1),
+        order=(1, 0),
+    )
 
     # ? LOADING AND INITIALIZATION
     # define q_block_idxes for causal masking
@@ -160,6 +175,10 @@ def mlstm_parallel_bw_dQ_kernel(
 
     # init matDeltaQ_tile accumulator
     matDeltaQ_tile = tl.zeros([BLOCK_Q, HEAD_DIM], dtype=tl.float32)
+
+    # init vecAux_tile and matTmp_tile accumulators
+    vecAux_tile = tl.zeros([BLOCK_Q, 1], dtype=tl.float32)
+    matTmp_tile = tl.zeros([BLOCK_Q, HEAD_DIM], dtype=tl.float32)
 
     # ? LOOP1: compute matDeltaK, matDeltaV, vecDeltaI_sum
     kvEndIdx = tl.cdiv((qIdx + 1) * BLOCK_Q, BLOCK_KV)
@@ -220,6 +239,8 @@ def mlstm_parallel_bw_dQ_kernel(
         )  # (BLOCK_Q, BLOCK_KV)
         # ? end recomputation of S & D matrices
 
+        vecAux_tile += tl.sum(matDeltaC_tile * matDprime_tile * matS_tile, axis=1, keep_dims=True)
+        matTmp_tile += tl.dot(matDprime_tile / qk_scale, matK_tile)
         matP_tile = matDeltaC_tile * matDprime_tile  # (BLOCK_Q, BLOCK_KV)
 
         # update matDeltaQ_tile in SRAM
@@ -236,7 +257,10 @@ def mlstm_parallel_bw_dQ_kernel(
         # ? END LOOP1
 
     # epilogue
+    vecAux_tile *= tl.where(tl.abs(vecL_chunk_Q) > tl.exp(-vecM_chunk_Q), 1 / vecL_chunk_Q, 0)[:, None]
+    matDeltaQ_tile -= vecAux_tile * matTmp_tile
     tl.store(matDeltaQ_block_ptr, matDeltaQ_tile.to(matDeltaQ.type.element_ty))
+    tl.store(vecAux_block_ptr, vecAux_tile.to(vecAux.type.element_ty))
 
 
 @triton.autotune(list(filter(keep, configs)), key=["N_CTX", "HEAD_DIM"])
@@ -250,6 +274,7 @@ def mlstm_parallel_bw_dKdV_kernel(
     vecF_cs,
     vecM,
     vecL,
+    vecAux,
     qk_scale,
     matDeltaQ,
     matDeltaK,
@@ -274,6 +299,9 @@ def mlstm_parallel_bw_dKdV_kernel(
     stride_ifml_z,
     stride_ifml_h,
     stride_ifml_s,
+    stride_aux_z,
+    stride_aux_h,
+    stride_aux_s,
     Z,
     H,
     N_CTX,  #
@@ -299,6 +327,9 @@ def mlstm_parallel_bw_dKdV_kernel(
     )
     ifml_batchhead_offset = (
         off_z.to(tl.int64) * stride_ifml_z + off_h.to(tl.int64) * stride_ifml_h
+    )
+    aux_batchhead_offset = (
+        off_z.to(tl.int64) * stride_aux_z + off_h.to(tl.int64) * stride_aux_h
     )
 
     # input block pointers
@@ -419,6 +450,12 @@ def mlstm_parallel_bw_dKdV_kernel(
         vecL_chunk_Q = tl.load(vecL_chunk_Q_ptr)  # (BLOCK_Q,)
         vecN_chunk_Q = tl.maximum(tl.abs(vecL_chunk_Q), tl.exp(-vecM_chunk_Q))
 
+        # load vecAux_chunk
+        vecAux_offsets = aux_batchhead_offset + stride_aux_s * (q_offset + tl.arange(0, BLOCK_Q))
+        vecAux_chunk_Q_ptr = vecAux + vecAux_offsets
+
+        vecAux_chunk_Q = tl.load(vecAux_chunk_Q_ptr)  # (BLOCK_Q)
+
         # load vecF_cs_chunk_Q
         vecF_cs_chunk_Q_ptr = (
             vecF_cs + ifml_batchhead_offset + q_offset + tl.arange(0, BLOCK_Q)
@@ -465,7 +502,7 @@ def mlstm_parallel_bw_dKdV_kernel(
         # sum up the columns of matDeltaCTilde_tile
         vecDeltaI_sum_chunk_KV += tl.sum(matDeltaCTilde_tile, axis=0)  # (BLOCK_KV,)
 
-        matP_tile = matDeltaC_tile * matDprime_tile  # (BLOCK_Q, BLOCK_KV)
+        matP_tile = (matDeltaC_tile - vecAux_chunk_Q[:, None]) * matDprime_tile  # (BLOCK_Q, BLOCK_KV)
         matR_tile = matS_tile * matDprime_tile  # (BLOCK_Q, BLOCK_KV)
         matR_tile = matR_tile.to(matQ_tile.type.element_ty)
 

@@ -53,6 +53,7 @@ def mlstm_parallel_bw(
     matDeltaV = torch.empty_like(matV)
 
     vecDeltaI = torch.zeros_like(vecI)
+    vecAux = torch.empty_like(vecI)
 
     # Note we want to compute the forget gate cumsum in float32.
     # This results in a more accurate cumsum and lower numerical precision errors.
@@ -86,6 +87,7 @@ def mlstm_parallel_bw(
         matDeltaK=matDeltaK,
         matDeltaV=matDeltaV,
         vecDeltaI=vecDeltaI,
+        vecAux=vecAux,
         stride_dhtz=matDeltaHtilde.stride(0),
         stride_dhth=matDeltaHtilde.stride(1),
         stride_dhts=matDeltaHtilde.stride(2),
@@ -105,6 +107,9 @@ def mlstm_parallel_bw(
         stride_ifml_z=vecF_cs.stride(0),
         stride_ifml_h=vecF_cs.stride(1),
         stride_ifml_s=vecF_cs.stride(2),
+        stride_aux_z=vecAux.stride(0),
+        stride_aux_h=vecAux.stride(1),
+        stride_aux_s=vecAux.stride(2),
         Z=BS,
         H=NH,
         N_CTX=SL,
@@ -137,6 +142,7 @@ def mlstm_parallel_bw(
         vecF_cs=vecF_cs.contiguous(),
         vecM=vecM.contiguous(),
         vecL=vecL.contiguous(),
+        vecAux=vecAux,
         qk_scale=HEAD_DIM_Q**0.5,
         matDeltaQ=matDeltaQ,
         matDeltaK=matDeltaK,
@@ -161,6 +167,9 @@ def mlstm_parallel_bw(
         stride_ifml_z=vecF_cs.stride(0),
         stride_ifml_h=vecF_cs.stride(1),
         stride_ifml_s=vecF_cs.stride(2),
+        stride_aux_z=vecAux.stride(0),
+        stride_aux_h=vecAux.stride(1),
+        stride_aux_s=vecAux.stride(2),
         Z=BS,
         H=NH,
         N_CTX=SL,
