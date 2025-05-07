@@ -31,7 +31,7 @@ def mlstm_parallel_bw_dQ_kernel(
     vecI,
     vecF_cs,
     vecM,
-    vecN,
+    vecL,
     qk_scale,
     matDeltaQ,
     matDeltaK,
@@ -53,9 +53,9 @@ def mlstm_parallel_bw_dQ_kernel(
     stride_vh,
     stride_vs,
     stride_vd,  #
-    stride_ifmn_z,
-    stride_ifmn_h,
-    stride_ifmn_s,
+    stride_ifml_z,
+    stride_ifml_h,
+    stride_ifml_s,
     Z,
     H,
     N_CTX,  #
@@ -79,8 +79,8 @@ def mlstm_parallel_bw_dQ_kernel(
     qkvh_batchhead_offset = (
         off_z.to(tl.int64) * stride_qz + off_h.to(tl.int64) * stride_qh
     )
-    ifmn_batchhead_offset = (
-        off_z.to(tl.int64) * stride_ifmn_z + off_h.to(tl.int64) * stride_ifmn_h
+    ifml_batchhead_offset = (
+        off_z.to(tl.int64) * stride_ifml_z + off_h.to(tl.int64) * stride_ifml_h
     )
 
     # input block pointers
@@ -143,16 +143,17 @@ def mlstm_parallel_bw_dQ_kernel(
     matDeltaHtilde_tile = tl.load(matDeltaHtilde_block_ptr)  # (BLOCK_Q, HEAD_DIM)
 
     # load vecM_chunk_Q, vecN_chunk_Q
-    vecMN_offsets = ifmn_batchhead_offset + q_offset + tl.arange(0, BLOCK_Q)
-    vecM_chunk_Q_ptr = vecM + vecMN_offsets
-    vecN_chunk_Q_ptr = vecN + vecMN_offsets
+    vecML_offsets = ifml_batchhead_offset + q_offset + tl.arange(0, BLOCK_Q)
+    vecM_chunk_Q_ptr = vecM + vecML_offsets
+    vecL_chunk_Q_ptr = vecL + vecML_offsets
 
     vecM_chunk_Q = tl.load(vecM_chunk_Q_ptr)  # (BLOCK_Q,)
-    vecN_chunk_Q = tl.load(vecN_chunk_Q_ptr)  # (BLOCK_Q,)
+    vecL_chunk_Q = tl.load(vecL_chunk_Q_ptr)  # (BLOCK_Q,)
+    vecN_chunk_Q = tl.maximum(tl.abs(vecL_chunk_Q), tl.exp(-vecM_chunk_Q))
 
     # load vecF_cs_chunk_Q
     vecF_cs_chunk_Q_ptr = (
-        vecF_cs + ifmn_batchhead_offset + q_offset + tl.arange(0, BLOCK_Q)
+        vecF_cs + ifml_batchhead_offset + q_offset + tl.arange(0, BLOCK_Q)
     )
     vecF_cs_chunk_Q = tl.load(vecF_cs_chunk_Q_ptr)
     vecF_cs_chunk_Q = vecF_cs_chunk_Q.to(tl.float32)
@@ -171,14 +172,14 @@ def mlstm_parallel_bw_dQ_kernel(
 
         # load vecF_cs_chunk_KV
         vecF_cs_chunk_KV_ptr = (
-            vecF_cs + ifmn_batchhead_offset + kv_offset + tl.arange(0, BLOCK_KV)
+            vecF_cs + ifml_batchhead_offset + kv_offset + tl.arange(0, BLOCK_KV)
         )
         vecF_cs_chunk_KV = tl.load(vecF_cs_chunk_KV_ptr)
         vecF_cs_chunk_KV = vecF_cs_chunk_KV.to(tl.float32)
 
         # load vecI_chunk
         vecI_chunk_KV_ptr = (
-            vecI + ifmn_batchhead_offset + kv_offset + tl.arange(0, BLOCK_KV)
+            vecI + ifml_batchhead_offset + kv_offset + tl.arange(0, BLOCK_KV)
         )
         vecI_chunk_KV = tl.load(vecI_chunk_KV_ptr)  # (BLOCK_KV,)
 
@@ -248,7 +249,7 @@ def mlstm_parallel_bw_dKdV_kernel(
     vecI,
     vecF_cs,
     vecM,
-    vecN,
+    vecL,
     qk_scale,
     matDeltaQ,
     matDeltaK,
@@ -270,9 +271,9 @@ def mlstm_parallel_bw_dKdV_kernel(
     stride_vh,
     stride_vs,
     stride_vd,  #
-    stride_ifmn_z,
-    stride_ifmn_h,
-    stride_ifmn_s,
+    stride_ifml_z,
+    stride_ifml_h,
+    stride_ifml_s,
     Z,
     H,
     N_CTX,  #
@@ -296,8 +297,8 @@ def mlstm_parallel_bw_dKdV_kernel(
     qkvh_batchhead_offset = (
         off_z.to(tl.int64) * stride_qz + off_h.to(tl.int64) * stride_qh
     )
-    ifmn_batchhead_offset = (
-        off_z.to(tl.int64) * stride_ifmn_z + off_h.to(tl.int64) * stride_ifmn_h
+    ifml_batchhead_offset = (
+        off_z.to(tl.int64) * stride_ifml_z + off_h.to(tl.int64) * stride_ifml_h
     )
 
     # input block pointers
@@ -372,7 +373,7 @@ def mlstm_parallel_bw_dKdV_kernel(
 
     # load vecI_chunk
     vecI_chunk_KV_ptr = (
-        vecI + ifmn_batchhead_offset + kv_offset + tl.arange(0, BLOCK_KV)
+        vecI + ifml_batchhead_offset + kv_offset + tl.arange(0, BLOCK_KV)
     )
     vecI_chunk_KV = tl.load(vecI_chunk_KV_ptr)  # (BLOCK_KV,)
 
@@ -381,7 +382,7 @@ def mlstm_parallel_bw_dKdV_kernel(
 
     # load vecF_cs_chunk_KV
     vecF_cs_chunk_KV_ptr = (
-        vecF_cs + ifmn_batchhead_offset + kv_offset + tl.arange(0, BLOCK_KV)
+        vecF_cs + ifml_batchhead_offset + kv_offset + tl.arange(0, BLOCK_KV)
     )
     vecF_cs_chunk_KV = tl.load(vecF_cs_chunk_KV_ptr)
     vecF_cs_chunk_KV = vecF_cs_chunk_KV.to(tl.float32)
@@ -410,16 +411,17 @@ def mlstm_parallel_bw_dKdV_kernel(
         matDeltaHtilde_tile = tl.load(matDeltaHtilde_block_ptr)  # (BLOCK_Q, HEAD_DIM)
 
         # load vecM_chunk_Q, vecN_chunk_Q
-        vecMN_offsets = ifmn_batchhead_offset + q_offset + tl.arange(0, BLOCK_Q)
-        vecM_chunk_Q_ptr = vecM + vecMN_offsets
-        vecN_chunk_Q_ptr = vecN + vecMN_offsets
+        vecML_offsets = ifml_batchhead_offset + q_offset + tl.arange(0, BLOCK_Q)
+        vecM_chunk_Q_ptr = vecM + vecML_offsets
+        vecL_chunk_Q_ptr = vecL + vecML_offsets
 
         vecM_chunk_Q = tl.load(vecM_chunk_Q_ptr)  # (BLOCK_Q,)
-        vecN_chunk_Q = tl.load(vecN_chunk_Q_ptr)  # (BLOCK_Q,)
+        vecL_chunk_Q = tl.load(vecL_chunk_Q_ptr)  # (BLOCK_Q,)
+        vecN_chunk_Q = tl.maximum(tl.abs(vecL_chunk_Q), tl.exp(-vecM_chunk_Q))
 
         # load vecF_cs_chunk_Q
         vecF_cs_chunk_Q_ptr = (
-            vecF_cs + ifmn_batchhead_offset + q_offset + tl.arange(0, BLOCK_Q)
+            vecF_cs + ifml_batchhead_offset + q_offset + tl.arange(0, BLOCK_Q)
         )
         vecF_cs_chunk_Q = tl.load(vecF_cs_chunk_Q_ptr)
         vecF_cs_chunk_Q = vecF_cs_chunk_Q.to(tl.float32)
@@ -505,7 +507,7 @@ def mlstm_parallel_bw_dKdV_kernel(
     tl.store(matDeltaV_block_ptr, matDeltaV_tile.to(matDeltaV.type.element_ty))
     # store vecDeltaI_sum
     vecDeltaI_chunk_KV_ptr = (
-        vecDeltaI + ifmn_batchhead_offset + kv_offset + tl.arange(0, BLOCK_KV)
+        vecDeltaI + ifml_batchhead_offset + kv_offset + tl.arange(0, BLOCK_KV)
     )
     tl.store(
         vecDeltaI_chunk_KV_ptr, vecDeltaI_sum_chunk_KV.to(vecDeltaI.type.element_ty)

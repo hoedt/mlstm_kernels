@@ -18,7 +18,7 @@ def mlstm_parallel_bw(
     vecI: torch.Tensor,
     vecF: torch.Tensor,
     vecM: torch.Tensor,
-    vecN: torch.Tensor,
+    vecL: torch.Tensor,
     eps: float = 1e-6,
     # BLOCK_Q_dKdV: int = BLOCK_Q,
     # BLOCK_KV_dKdV: int = BLOCK_KV,
@@ -30,7 +30,7 @@ def mlstm_parallel_bw(
     assert vecI.shape == (BS, NH, SL)
     assert vecF.shape == (BS, NH, SL)
     assert vecM.shape == (BS, NH, SL)
-    assert vecN.shape == (BS, NH, SL)
+    assert vecL.shape == (BS, NH, SL)
     assert matDeltaHtilde.shape == (BS, NH, SL, DH)
     assert matQ.shape == matK.shape == matV.shape
 
@@ -81,7 +81,7 @@ def mlstm_parallel_bw(
         vecI=vecI.contiguous(),
         vecF_cs=vecF_cs.contiguous(),
         vecM=vecM.contiguous(),
-        vecN=vecN.contiguous(),
+        vecL=vecL.contiguous(),
         qk_scale=HEAD_DIM_Q**0.5,
         matDeltaQ=matDeltaQ,
         matDeltaK=matDeltaK,
@@ -103,9 +103,9 @@ def mlstm_parallel_bw(
         stride_vh=matV.stride(1),
         stride_vs=matV.stride(2),
         stride_vd=matV.stride(3),
-        stride_ifmn_z=vecF_cs.stride(0),
-        stride_ifmn_h=vecF_cs.stride(1),
-        stride_ifmn_s=vecF_cs.stride(2),
+        stride_ifml_z=vecF_cs.stride(0),
+        stride_ifml_h=vecF_cs.stride(1),
+        stride_ifml_s=vecF_cs.stride(2),
         Z=BS,
         H=NH,
         N_CTX=SL,
@@ -136,7 +136,7 @@ def mlstm_parallel_bw(
         vecI=vecI.contiguous(),
         vecF_cs=vecF_cs.contiguous(),
         vecM=vecM.contiguous(),
-        vecN=vecN.contiguous(),
+        vecL=vecL.contiguous(),
         qk_scale=HEAD_DIM_Q**0.5,
         matDeltaQ=matDeltaQ,
         matDeltaK=matDeltaK,
@@ -158,9 +158,9 @@ def mlstm_parallel_bw(
         stride_vh=matV.stride(1),
         stride_vs=matV.stride(2),
         stride_vd=matV.stride(3),
-        stride_ifmn_z=vecF_cs.stride(0),
-        stride_ifmn_h=vecF_cs.stride(1),
-        stride_ifmn_s=vecF_cs.stride(2),
+        stride_ifml_z=vecF_cs.stride(0),
+        stride_ifml_h=vecF_cs.stride(1),
+        stride_ifml_s=vecF_cs.stride(2),
         Z=BS,
         H=NH,
         N_CTX=SL,
