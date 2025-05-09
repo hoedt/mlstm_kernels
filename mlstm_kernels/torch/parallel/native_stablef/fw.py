@@ -52,15 +52,14 @@ def mlstm_parallel_fw(
     matS = (matQ @ matK.transpose(-2, -1)) * (DHQK**-0.5)  # (B, NH, S, S)
 
     matCtilde = matS * matD  # (B, NH, S, S)
-    vecN = torch.maximum(
-        matCtilde.sum(dim=-1, keepdim=True).abs(), torch.exp(-vecM)
-    )  # (B, NH, S, 1)
+    vecL = matCtilde.sum(dim=-1, keepdim=True)
+    vecN = torch.maximum(vecL.abs(), torch.exp(-vecM))  # (B, NH, S, 1)
     # (B, NH, S, S)
     matC = matCtilde / (vecN + eps)
 
     matH = matC @ matV  # (B, NH, S, DH)
 
-    vecN = vecN.squeeze(-1)
+    vecL = vecL.squeeze(-1)
     vecM = vecM.squeeze(-1)
 
-    return (matH, vecN, vecM)
+    return (matH, vecL, vecM)

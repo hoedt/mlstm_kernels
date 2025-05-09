@@ -12,7 +12,7 @@ def mlstm_parallel_bw(
     matV: torch.Tensor,
     vecI: torch.Tensor,
     vecF: torch.Tensor,
-    vecN: torch.Tensor,
+    vecL: torch.Tensor,
     vecM: torch.Tensor,
     eps: float = 1e-6,
 ) -> tuple[torch.Tensor, ...]:
@@ -45,16 +45,17 @@ def mlstm_parallel_bw(
     matD = torch.exp(matLogD_stabilized)  # (B, NH, S, S)
 
     # intermediate delta-errors
+    vecN = torch.maximum(vecL.abs(), torch.exp(-vecM))
     matDeltaC = matDeltaHtilde @ matV.transpose(-2, -1) / (vecN[:, :, :, None] + eps)
 
     matS = (matQ @ matK.transpose(-2, -1)) * (DHQK**-0.5)
 
     matDeltaDtilde = matDeltaC * matD * matS
-
-    vecDeltaI = torch.sum(matDeltaDtilde, dim=-2)
+    aux = torch.sum(matDeltaDtilde, dim=-1, keepdim=True) * ((torch.exp(-vecM) < vecN) * (1 / vecL))[..., None]
 
     # output delta-errors / gradients
-    matP = matDeltaC * matD
+    matP = (matDeltaC - aux) * matD
+    vecDeltaI = torch.sum(matP * matS, dim=-2)
 
     matDeltaQ = (matP @ matK) * (DHQK**-0.5)
     matDeltaK = (matP.transpose(-2, -1) @ matQ) * (DHQK**-0.5)
