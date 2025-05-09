@@ -496,7 +496,7 @@ def mlstm_parallel_bw_dKdV_kernel(
         )  # (BLOCK_Q, BLOCK_KV)
         # ? end recomputation of S & D matrices
 
-        matDeltaCTilde_tile = matDeltaC_tile * matS_tile * matDprime_tile
+        matDeltaCTilde_tile = (matDeltaC_tile - vecAux_chunk_Q[:, None]) * matS_tile * matDprime_tile
 
         # compute sum for vecDeltaI
         # sum up the columns of matDeltaCTilde_tile
