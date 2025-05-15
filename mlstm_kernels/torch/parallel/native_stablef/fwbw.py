@@ -32,7 +32,7 @@ def _mlstm_parallel_fwbw_generator(autocast_kernel_dtype=torch.float32) -> Calla
             vecF: torch.Tensor,
             eps: float = 1e-6,
         ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-            matH, vecN, vecM = mlstm_parallel_fw(
+            matH, vecL, vecM = mlstm_parallel_fw(
                 matQ=matQ,
                 matK=matK,
                 matV=matV,
@@ -41,9 +41,9 @@ def _mlstm_parallel_fwbw_generator(autocast_kernel_dtype=torch.float32) -> Calla
                 eps=eps,
             )
             ctx.save_for_backward(
-                matQ, matK, matV, vecI, vecF, vecN, vecM, torch.tensor(eps)
+                matQ, matK, matV, vecI, vecF, vecL, vecM, torch.tensor(eps)
             )
-            return matH, vecN, vecM
+            return matH, vecL, vecM
 
         @staticmethod
         @custom_bwd(device_type="cuda")
@@ -54,7 +54,7 @@ def _mlstm_parallel_fwbw_generator(autocast_kernel_dtype=torch.float32) -> Calla
             vecDeltaN_unused: torch.Tensor,
             vecDeltaM_unused: torch.Tensor,
         ) -> tuple[torch.Tensor, ...]:
-            (matQ, matK, matV, vecI, vecF, vecN, vecM, eps) = ctx.saved_tensors
+            (matQ, matK, matV, vecI, vecF, vecL, vecM, eps) = ctx.saved_tensors
             matDeltaQ, matDeltaK, matDeltaV, vecDeltaI, vecDeltaF = mlstm_parallel_bw(
                 matDeltaHtilde=matDeltaHtilde,
                 matQ=matQ,
@@ -62,7 +62,7 @@ def _mlstm_parallel_fwbw_generator(autocast_kernel_dtype=torch.float32) -> Calla
                 matV=matV,
                 vecI=vecI,
                 vecF=vecF,
-                vecN=vecN,
+                vecL=vecL,
                 vecM=vecM,
                 eps=float(eps),
             )
