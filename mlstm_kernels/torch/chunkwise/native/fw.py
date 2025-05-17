@@ -144,7 +144,7 @@ def mlstm_chunkwise__parallel_fw_H(
     eps: float = 1e-6,
 ) -> tuple[
     torch.Tensor, torch.Tensor, torch.Tensor
-]:  # matH_out (B, NH, S, DHHV), vecN_out (B, NH, S), vecM_out (B, NH, S)
+]:  # matH_out (B, NH, S, DHHV), vecL_out (B, NH, S), vecM_out (B, NH, S)
     _device = matQ.device
     NC, L = num_chunks, chunk_size
     matC_k_states = rearrange(
@@ -214,11 +214,11 @@ def mlstm_chunkwise__parallel_fw_H(
     matH_out = rearrange(matH_k_chunk, "b nh nc l dh -> b nh (nc l) dh")
 
     # we need the denominator and the overall max state for the backward pass
-    vecN_out = rearrange(
-        vecDenom_max_common, "b nh nc l 1 -> b nh (nc l)"
+    vecL_out = rearrange(
+        vecDenom_l_common, "b nh nc l 1 -> b nh (nc l)"
     )  # (B, NH, S)
     vecM_out = rearrange(vecM_k_combine, "b nh nc l 1 -> b nh (nc l)")  # (B, NH, S)
-    return matH_out, vecN_out, vecM_out
+    return matH_out, vecL_out, vecM_out
 
 
 def mlstm_chunkwise_fw(
@@ -237,7 +237,7 @@ def mlstm_chunkwise_fw(
     eps: float = 1e-6,
 ) -> tuple[
     torch.Tensor,  # matH_out (B, NH, S, DHHV)
-    torch.Tensor,  # vecN_out (B, NH, S)
+    torch.Tensor,  # vecL_out (B, NH, S)
     torch.Tensor,  # vecM_out (B, NH, S)
     None
     | (
@@ -279,7 +279,7 @@ def mlstm_chunkwise_fw(
     )
 
     #! compute the outputs within each chunk
-    matH_out, vecN_out, vecM_out = mlstm_chunkwise__parallel_fw_H(
+    matH_out, vecL_out, vecM_out = mlstm_chunkwise__parallel_fw_H(
         matQ=matQ,
         matK=matK,
         matV=matV,
@@ -296,7 +296,7 @@ def mlstm_chunkwise_fw(
 
     ret_tuple = (
         matH_out,
-        vecN_out,
+        vecL_out,
         vecM_out,
     )
     if return_last_states:
