@@ -5,7 +5,7 @@ import torch
 from torch.nn.functional import logsigmoid
 
 from ...utils import contiguous_noctx
-from .bw_parallel import mlstm_chunkwise__parallel_bw_dQKV
+from .bw_parallel import mlstm_chunkwise__parallel_bw_dQKV, mlstm_chunkwise__recurrent_bw_dQKV
 from .bw_recurrent import mlstm_chunkwise__recurrent_bw_dC
 from .fw_recurrent import mlstm_chunkwise__recurrent_fw_C
 from .chunkwise_gates import compute_gate_grads_vecDeltaI_vecDeltaF
@@ -75,24 +75,10 @@ def mlstm_chunkwise_bw(
             NUM_CHUNKS=NC,
         )
 
-    matDeltaC_states = mlstm_chunkwise__recurrent_bw_dC(
-        matQ=matQ,  # (B, NH, S, DHQK)
-        vecB=vecB,  # (B, NH, NC, L)
-        scaM_inter=scaM_all,  # (B, NH, NC+1)
-        vecM_combine=vecM_out,  # (B, NH, S)
-        matDeltaH=matDeltaH,  # (B, NH, S, DHV)
-        vecL_out=vecL_out,  # (B, NH, S)
-        matDeltaC_last=matDeltaC_last,  # (B, NH, DHQK, DHV)
-        qk_scale=qk_scale,
-        CHUNK_SIZE=CHUNK_SIZE,
-        NUM_CHUNKS=NC,
-        EPS=EPS,
-    )  # (B, NH, NC * DHQK, DHV)
-
     matC_k_states = matC_all  # [:, :, :-DHQK, :]  # take the first NC states
-    matDeltaC_k_states = matDeltaC_states  # [:, :, DHQK:, :]  # take the last NC states
+    vecN_k_states = vecN_all  # [:, :, :-DHQK]  # take the first NC states
 
-    matDeltaQ, matDeltaK, matDeltaV = mlstm_chunkwise__parallel_bw_dQKV(
+    matDeltaQ_intra, matDeltaK_intra, matDeltaV_intra, vecAux = mlstm_chunkwise__parallel_bw_dQKV(
         matQ=matQ,
         matK=matK,
         matV=matV,
@@ -103,12 +89,54 @@ def mlstm_chunkwise_bw(
         matC_states=matC_k_states,  # (B, NH, (NC+1) * DHQK, DHV) # we only need the first NC states
         matDeltaH=matDeltaH,  # (B, NH, S, DHV)
         vecL_out=vecL_out,  # (B, NH, S)
-        matDeltaC_states=matDeltaC_k_states,  # (B, NH, (NC+1) * DHQK, DHV)
         qk_scale=qk_scale,
         CHUNK_SIZE=CHUNK_SIZE,
         NUM_CHUNKS=NC,
         EPS=EPS,
     )
+
+    matDeltaC_states, vecDeltaN_states = mlstm_chunkwise__recurrent_bw_dC(
+        matQ=matQ,  # (B, NH, S, DHQK)
+        vecB=vecB,  # (B, NH, NC, L)
+        scaM_inter=scaM_all,  # (B, NH, NC+1)
+        vecM_combine=vecM_out,  # (B, NH, S)
+        matDeltaH=matDeltaH,  # (B, NH, S, DHV)
+        vecL_out=vecL_out,  # (B, NH, S)
+        vecAux=vecAux,  # (B, NH, S, 1)
+        matDeltaC_last=matDeltaC_last,  # (B, NH, DHQK, DHV)
+        vecDeltaN_last=vecDeltaN_last,  # (B, NH, DHQK)
+        qk_scale=qk_scale,
+        CHUNK_SIZE=CHUNK_SIZE,
+        NUM_CHUNKS=NC,
+        EPS=EPS,
+    )  # (B, NH, NC * DHQK, DHV)
+
+    matDeltaC_k_states = matDeltaC_states  # [:, :, DHQK:, :]  # take the last NC states
+    vecDeltaN_k_states = vecDeltaN_states  # [:, :, DHQK:]  # take the last NC states
+
+    matDeltaQ_inter, matDeltaK_inter, matDeltaV_inter = mlstm_chunkwise__recurrent_bw_dQKV(
+        matK=matK,
+        matV=matV,
+        vecB=vecB,
+        vecI=vecI,
+        vecM_combine=vecM_out,
+        scaM_inter=scaM_all,  # (B, NH, NC)
+        vecN_states=vecN_k_states,  # (B, NH, (NC+1) * DHQK)
+        matC_states=matC_k_states,  # (B, NH, (NC+1) * DHQK, DHV) # we only need the first NC states
+        matDeltaH=matDeltaH,  # (B, NH, S, DHV)
+        vecL_out=vecL_out,  # (B, NH, S)
+        vecAux=vecAux,  # (B, NH, S, 1)
+        matDeltaC_states=matDeltaC_k_states,  # (B, NH, (NC+1) * DHQK, DHV)
+        vecDeltaN_states=vecDeltaN_k_states,  # (B, NH, (NC+1) * DHQK)
+        qk_scale=qk_scale,
+        CHUNK_SIZE=CHUNK_SIZE,
+        NUM_CHUNKS=NC,
+        EPS=EPS,
+    )
+
+    matDeltaQ = matDeltaQ_intra + matDeltaQ_inter
+    matDeltaK = matDeltaK_intra + matDeltaK_inter
+    matDeltaV = matDeltaV_intra + matDeltaV_inter
 
     vecDeltaI, vecDeltaF = compute_gate_grads_vecDeltaI_vecDeltaF(
         matQ=matQ, matK=matK, matDeltaQ=matDeltaQ, matDeltaK=matDeltaK, vecF=vecF
@@ -118,7 +146,7 @@ def mlstm_chunkwise_bw(
         matDeltaC_states[:, :, :DHQK, :] if matC_initial is not None else None
     )
     vecDeltaN_initial = (
-        torch.zeros_like(vecN_initial) if vecN_initial is not None else None
+        vecDeltaN_states[:, :, :DHQK] if vecN_initial is not None else None
     )
     scaDeltaM_initial = (
         torch.zeros_like(scaM_initial) if scaM_initial is not None else None

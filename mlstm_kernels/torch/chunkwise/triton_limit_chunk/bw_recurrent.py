@@ -17,12 +17,16 @@ def mlstm_chunkwise__recurrent_bw_dC(
     vecM_combine: torch.Tensor,  # (B, NH, S)
     matDeltaH: torch.Tensor,  # (B, NH, S, DHHV)
     vecL_out: torch.Tensor,  # (B, NH, S)
+    vecAux: torch.Tensor,  # (B, NH, S, 1)
     matDeltaC_last: torch.Tensor = None,  # (B, NH, DHQK, DHHV)
+    vecDeltaN_last: torch.Tensor = None,
     qk_scale: float = None,
     CHUNK_SIZE: int = 64,
     NUM_CHUNKS: int = 1,
     EPS: float = 1e-6,
-) -> torch.Tensor:  # matDeltaC_states (B, NH, (NC+1) * DHQK, DHHV)
+) -> tuple[
+    torch.Tensor, torch.Tensor
+]:  # matDeltaC_states (B, NH, (NC+1) * DHQK, DHHV), vecDeltaN_states (B, NH, (NC+1) * DHQK)
     """Computes only the deltaC gradients for the backward pass.
     The other gradients are computed in the other (kernel) function.
     We do not need to compute the gradients for the denominator, as it cancels out in the forward in the groupnorm.
@@ -38,9 +42,13 @@ def mlstm_chunkwise__recurrent_bw_dC(
         qk_scale = DHQK**-0.5
 
     USE_LAST_STATE = matDeltaC_last is not None
+    assert USE_LAST_STATE == (vecDeltaN_last is not None), "both matDeltaC and vecDeltaN must be given"
 
     matDeltaC_states = torch.zeros(
         (B, NH, (NC + 1) * DHQK, DHHV), dtype=torch.float32, device=_device
+    )
+    vecDeltaN_states = torch.zeros(
+        (B, NH, (NC + 1) * DHQK), dtype=torch.float32, device=_device
     )
 
     siz_b_DHQK = get_head_dim_block_size(head_dim=DHQK, min_block_size=64)
@@ -60,8 +68,11 @@ def mlstm_chunkwise__recurrent_bw_dC(
         vecM_combine=vecM_combine,
         matDeltaH=matDeltaH,
         vecL_out=vecL_out,
+        vecAux=vecAux,
         matDeltaC_last=matDeltaC_last,
+        vecDeltaN_last=vecDeltaN_last,
         matDeltaC_states=matDeltaC_states,
+        vecDeltaN_states=vecDeltaN_states,
         qk_scale=qk_scale,
         str_matQ_B_NH=matQ.stride(1),
         str_matQ_S=matQ.stride(2),
@@ -78,12 +89,18 @@ def mlstm_chunkwise__recurrent_bw_dC(
         str_matDeltaH_DHHV=matDeltaH.stride(3),
         str_vecL_out_B_NH=vecL_out.stride(1),
         str_vecL_out_S=vecL_out.stride(2),
+        str_vecAux_B_NH=vecAux.stride(1),
+        str_vecAux_S=vecAux.stride(2),
         str_matDeltaC_last_B_NH=matDeltaC_last.stride(1) if USE_LAST_STATE else 0,
         str_matDeltaC_last_DHQK=matDeltaC_last.stride(2) if USE_LAST_STATE else 0,
         str_matDeltaC_last_DHHV=matDeltaC_last.stride(3) if USE_LAST_STATE else 0,
+        str_vecDeltaN_last_B_NH=vecDeltaN_last.stride(1) if USE_LAST_STATE else 0,
+        str_vecDeltaN_last_DHQK=vecDeltaN_last.stride(2) if USE_LAST_STATE else 0,
         str_matDeltaC_states_B_NH=matDeltaC_states.stride(1),
         str_matDeltaC_states_NCDHQK=matDeltaC_states.stride(2),
         str_matDeltaC_states_DHHV=matDeltaC_states.stride(3),
+        str_vecDeltaN_states_B_NH=vecDeltaN_states.stride(1),
+        str_vecDeltaN_states_NCDHQK=vecDeltaN_states.stride(2),
         B=B,
         NH=NH,
         S=S,
@@ -100,4 +117,4 @@ def mlstm_chunkwise__recurrent_bw_dC(
         num_warps=num_warps,
     )
 
-    return matDeltaC_states
+    return matDeltaC_states, vecDeltaN_states
