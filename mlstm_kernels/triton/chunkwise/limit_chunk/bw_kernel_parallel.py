@@ -134,7 +134,7 @@ def mlstm_chunkwise__parallel_bw_dQKV_kernel(
     matK_val = tl.load(matK_ptr, boundary_check=(0, 1)).to(DTYPE)  # (siz_b_DHQK, L)
     matS_val = tl.dot(matQ_val, tl.trans(matK_val)) * qk_scale
     matSbar_val = (matS_val * matDbar_val).to(DTYPE)  # (L, L)
-    matQ_chunk_gated_val = matQ_val * vecBbar_val[:, None] * qk_scale
+    matQbar_val = (matQ_val * vecBbar_val[:, None] * qk_scale).to(DTYPE)
 
     vecL_out_ptr = vecL_out + idx_b_BNH * S + idx_b_NC * L + tl.arange(0, L)
     vecL_out_val = tl.load(vecL_out_ptr).to(tl.float32)  # (L,)
@@ -217,7 +217,7 @@ def mlstm_chunkwise__parallel_bw_dQKV_kernel(
         )  # (siz_b_DHHV, siz_b_DHQK)
         matNumerator_common_val = (
             tl.dot(matSbar_val, matV_val)
-            + tl.dot(matQ_chunk_gated_val, matC_km1_val)
+            + tl.dot(matQbar_val, matC_km1_val)
         )
         vecAux_acc += tl.sum(
             (matDeltaH_val / (vecN_out_val[:, None] + EPS))
