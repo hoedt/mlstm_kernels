@@ -20,7 +20,7 @@ def mlstm_chunkwise__parallel_bw_dQKV(
     scaM_inter: torch.Tensor,  # (B, NH, NC+1)
     matC_states: torch.Tensor,  # (B, NH, NC * DHQK, DHHV)
     matDeltaH: torch.Tensor,  # (B, NH, S, DHHV)
-    vecN_out: torch.Tensor,  # (B, NH, S)
+    vecL_out: torch.Tensor,  # (B, NH, S)
     matDeltaC_states: torch.Tensor,  # (B, NH, NC * DHQK, DHHV)
     qk_scale: float = None,
     CHUNK_SIZE: int = 64,
@@ -69,7 +69,7 @@ def mlstm_chunkwise__parallel_bw_dQKV(
         scaM_inter=scaM_inter,
         matC_states=matC_states,
         matDeltaH=matDeltaH,
-        vecN_out=vecN_out,
+        vecL_out=vecL_out,
         matDeltaC_states=matDeltaC_states,
         matDeltaQ=matDeltaQ,
         matDeltaK=matDeltaK,
@@ -92,8 +92,8 @@ def mlstm_chunkwise__parallel_bw_dQKV(
         str_matC_states_B_NH=matC_states.stride(1),
         str_matC_states_NCDHQK=matC_states.stride(2),
         str_matC_states_DHHV=matC_states.stride(3),
-        str_vecN_out_B_NH=vecN_out.stride(1),
-        str_vecN_out_S=vecN_out.stride(2),
+        str_vecL_out_B_NH=vecL_out.stride(1),
+        str_vecL_out_S=vecL_out.stride(2),
         str_matDeltaC_states_B_NH=matDeltaC_states.stride(1),
         str_matDeltaC_states_NCDHQK=matDeltaC_states.stride(2),
         str_matDeltaC_states_DHHV=matDeltaC_states.stride(3),

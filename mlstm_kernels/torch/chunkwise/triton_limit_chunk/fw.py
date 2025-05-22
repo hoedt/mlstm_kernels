@@ -26,7 +26,7 @@ def mlstm_chunkwise_fw(
     EPS: float = 1e-6,
 ) -> tuple[
     torch.Tensor,  # matH_out (B, NH, S, DHHV)
-    torch.Tensor,  # vecN_out (B, NH, S)
+    torch.Tensor,  # vecL_out (B, NH, S)
     torch.Tensor,  # vecM_out (B, NH, S)
     None
     | (
@@ -74,7 +74,7 @@ def mlstm_chunkwise_fw(
     #! compute the outputs within each chunk
     # we pass NC+1 states into this kernel but load only the first NC states
     # the NC+1th state is the next state after the last chunk
-    matH_out, vecN_out, vecM_out = mlstm_chunkwise__parallel_fw_H(
+    matH_out, vecL_out, vecM_out = mlstm_chunkwise__parallel_fw_H(
         matQ=matQ,
         matK=matK,
         matV=matV,
@@ -91,7 +91,7 @@ def mlstm_chunkwise_fw(
 
     ret_tuple = (
         matH_out,
-        vecN_out,
+        vecL_out,
         vecM_out,
     )
     if return_last_states:

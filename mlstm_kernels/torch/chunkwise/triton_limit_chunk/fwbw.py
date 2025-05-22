@@ -39,7 +39,7 @@ def _mlstm_chunkwise_fwbw_generator(autocast_kernel_dtype=torch.float16) -> Call
             if qk_scale is None:
                 qk_scale = DHQK**-0.5
 
-            matH_out, vecN_out, vecM_out, last_states, all_states = mlstm_chunkwise_fw(
+            matH_out, vecL_out, vecM_out, last_states, all_states = mlstm_chunkwise_fw(
                 matQ=matQ,
                 matK=matK,
                 matV=matV,
@@ -77,7 +77,7 @@ def _mlstm_chunkwise_fwbw_generator(autocast_kernel_dtype=torch.float16) -> Call
                 matC_all,
                 vecN_all,
                 scaM_all,
-                vecN_out,
+                vecL_out,
                 vecM_out,
                 torch.tensor(CHUNK_SIZE),
                 torch.tensor(EPS),
@@ -100,7 +100,7 @@ def _mlstm_chunkwise_fwbw_generator(autocast_kernel_dtype=torch.float16) -> Call
                 matC_all,
                 vecN_all,
                 scaM_all,
-                vecN_out,
+                vecL_out,
                 vecM_out,
                 CHUNK_SIZE,
                 EPS,
@@ -129,7 +129,7 @@ def _mlstm_chunkwise_fwbw_generator(autocast_kernel_dtype=torch.float16) -> Call
                 matC_all=matC_all,
                 vecN_all=vecN_all,
                 scaM_all=scaM_all,
-                vecN_out=vecN_out,
+                vecL_out=vecL_out,
                 vecM_out=vecM_out,
                 matDeltaH=matDeltaH,
                 matDeltaC_last=matDeltaC_last,

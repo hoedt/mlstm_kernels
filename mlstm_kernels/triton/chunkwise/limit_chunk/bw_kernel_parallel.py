@@ -40,7 +40,7 @@ def mlstm_chunkwise__parallel_bw_dQKV_kernel(
     scaM_inter,  # (B, NH, NC+1)
     matC_states,  # (B, NH, (NC+1) * DHQK, DHHV) # take only the first NC states
     matDeltaH,  # (B, NH, S, DHHV)
-    vecN_out,  # (B, NH, S)
+    vecL_out,  # (B, NH, S)
     matDeltaC_states,  # (B, NH, (NC+1) * DHQK, DHHV) # take only the last NC states
     matDeltaQ,  # (B, NH, S, DHQK)
     matDeltaK,  # (B, NH, S, DHQK)
@@ -63,8 +63,8 @@ def mlstm_chunkwise__parallel_bw_dQKV_kernel(
     str_matC_states_B_NH,
     str_matC_states_NCDHQK,
     str_matC_states_DHHV,
-    str_vecN_out_B_NH,
-    str_vecN_out_S,
+    str_vecL_out_B_NH,
+    str_vecL_out_S,
     str_matDeltaC_states_B_NH,
     str_matDeltaC_states_NCDHQK,
     str_matDeltaC_states_DHHV,
@@ -149,8 +149,9 @@ def mlstm_chunkwise__parallel_bw_dQKV_kernel(
         DTYPE
     )  # (L, siz_b_DHQK)
 
-    vecN_out_ptr = vecN_out + idx_b_BNH * S + idx_b_NC * L + tl.arange(0, L)
-    vecN_out_val = tl.load(vecN_out_ptr).to(tl.float32)  # (L,)
+    vecL_out_ptr = vecL_out + idx_b_BNH * S + idx_b_NC * L + tl.arange(0, L)
+    vecL_out_val = tl.load(vecL_out_ptr).to(tl.float32)  # (L,)
+    vecN_out_val = tl.maximum(tl.abs(vecL_out_val), tl.exp(-vecM_combine_val))
     matDeltaQ_inter_val = tl.zeros((L, siz_b_DHQK), dtype=tl.float32)
     matDeltaK_inter_val = tl.zeros((L, siz_b_DHQK), dtype=tl.float32)
     matDeltaSbar_val = tl.zeros((L, L), dtype=tl.float32)
