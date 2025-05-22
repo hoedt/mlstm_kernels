@@ -22,7 +22,7 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
     vecI,  # (B, NH, NC, L)
     vecB,  # (B, NH, NC, L)
     matHout,  # (B, NH, S, DHHV)
-    vecNout,  # (B, NH, S)
+    vecLout,  # (B, NH, S)
     vecMout,  # (B, NH, S)
     qk_scale: tl.constexpr,
     str_matQK_B_NH: tl.constexpr,
@@ -40,8 +40,8 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
     str_vecBI_B_NH: tl.constexpr,
     str_vecBI_NC: tl.constexpr,
     str_vecBI_L: tl.constexpr,
-    str_vecMN_B_NH: tl.constexpr,
-    str_vecMN_S: tl.constexpr,
+    str_vecML_B_NH: tl.constexpr,
+    str_vecML_S: tl.constexpr,
     B: tl.constexpr,
     NH: tl.constexpr,
     S: tl.constexpr,
@@ -89,7 +89,7 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
     # matH accumulator (siz_b_LQ, siz_b_DHHV_threadblock)
     matH_intra_acc = tl.zeros([siz_b_LQ, siz_b_DHHV], dtype=tl.float32)
     # vecN accumulator (siz_b_LQ,)
-    vecN_intra_acc = tl.zeros([siz_b_LQ], dtype=tl.float32)
+    vecL_intra_acc = tl.zeros([siz_b_LQ], dtype=tl.float32)
     # only compute the lower triangular part
     idx_b_LKV_end = ((idx_b_LQ + 1) * siz_b_LQ) // siz_b_LKV
     for idx_b_LKV in range(idx_b_LKV_end):
@@ -158,7 +158,7 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
         matS = matG * qk_scale * matD_val
 
         # compute vecN (siz_b_LQ,)
-        vecN_intra_acc = vecM_ratio * vecN_intra_acc + tl.sum(matS, axis=1)
+        vecL_intra_acc = vecM_ratio * vecL_intra_acc + tl.sum(matS, axis=1)
 
         # load matV (siz_b_LKV, siz_b_DHHV)
         matV_ptr = tl.make_block_ptr(
@@ -196,7 +196,7 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
     # which is computed in the loop above and is necessary for vecBbar_val computation
     # The cost is that we load matQ twice, but this is necessary for the correct computation of vecBbar_val
     matH_inter_acc = tl.zeros([siz_b_LQ, siz_b_DHHV], dtype=tl.float32)
-    vecN_inter_acc = tl.zeros([siz_b_LQ], dtype=tl.float32)
+    vecL_inter_acc = tl.zeros([siz_b_LQ], dtype=tl.float32)
     for idx_b_DHQK in range(tl.cdiv(DHQK, siz_b_DHQK)):
         matQ_ptr = tl.make_block_ptr(
             base=matQ + idx_b_BNH * str_matQK_B_NH,
@@ -236,7 +236,7 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
         vecN_km1_val = tl.load(vecN_km1_ptr).to(tl.float32)
 
         # accumulate vecN_inter (siz_b_LQ,1) = matQbar (siz_b_LQ, siz_b_DHQK) @ vecN_km1 (siz_b_DHQK,1)
-        vecN_inter_acc += tl.sum(matQbar_val * vecN_km1_val[None, :], axis=1)
+        vecL_inter_acc += tl.sum(matQbar_val * vecN_km1_val[None, :], axis=1)
 
     # ? combine the intra and inter chunk contributions
 
@@ -247,8 +247,9 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
     matH_comb_num_val = matH_inter_acc + vecM_comb_ratio[:, None] * matH_intra_acc
 
     # compute the vecN_comb_denom (siz_b_LQ,)
+    vecL_comb_denom_val = vecL_inter_acc + vecM_comb_ratio * vecL_intra_acc
     vecN_comb_denom_val = tl.maximum(
-        tl.abs(vecN_inter_acc + vecM_comb_ratio * vecN_intra_acc),
+        tl.abs(vecL_com_denom_val),
         tl.exp(-vecM_combine_val),
     )
 
@@ -270,18 +271,18 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
     # compute the same vecN and vecM
     if idx_b_DHHV == 0:
         # store vecNout (siz_b_LQ,)
-        vecNout_ptr = (
-            vecNout
-            + idx_b_BNH * str_vecMN_B_NH
+        vecLout_ptr = (
+            vecLout
+            + idx_b_BNH * str_vecML_B_NH
             + idx_b_NC * L
             + idx_b_LQ * siz_b_LQ
             + tl.arange(0, siz_b_LQ)
         )
-        tl.store(vecNout_ptr, vecN_comb_denom_val.to(OUTPUT_DTYPE))
+        tl.store(vecLout_ptr, vecL_comb_denom_val.to(OUTPUT_DTYPE))
         # store vecMout (size_b_LQ,)
         vecMout_ptr = (
             vecMout
-            + idx_b_BNH * str_vecMN_B_NH
+            + idx_b_BNH * str_vecML_B_NH
             + idx_b_NC * L
             + idx_b_LQ * siz_b_LQ
             + tl.arange(0, siz_b_LQ)

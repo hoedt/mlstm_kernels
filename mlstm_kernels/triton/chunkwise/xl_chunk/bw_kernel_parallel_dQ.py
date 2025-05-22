@@ -25,7 +25,7 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
     matCstate_all,  # (B, NH, (NC+1) * DHQK, DHHV)
     vecNstate_all,  # (B, NH, (NC+1) * DHQK)
     scaMstate_all,  # (B, NH, (NC+1))
-    vecN_out,  # (B, NH, S) # vecN_combine
+    vecL_out,  # (B, NH, S) # vecN_combine
     vecM_out,  # (B, NH, S) # vecM_combine
     matDeltaH_out,  # (B, NH, S, DHHV)
     matDeltaC_states,  # (B, NH, (NC+1) * DHQK, DHHV)
@@ -46,8 +46,8 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
     str_matCstate_DHHV: tl.constexpr,
     str_vecNstate_B_NH: tl.constexpr,
     str_scaMstate_B_NH: tl.constexpr,
-    str_vecMN_B_NH: tl.constexpr,
-    str_vecMN_S: tl.constexpr,
+    str_vecML_B_NH: tl.constexpr,
+    str_vecML_S: tl.constexpr,
     ## dimensions
     B: tl.constexpr,
     NH: tl.constexpr,
@@ -81,13 +81,13 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
 
     # load vecN_out (siz_b_LQ,)
     vecN_out_ptr = (
-        vecN_out
-        + idx_b_BNH * str_vecMN_B_NH
+        vecL_out
+        + idx_b_BNH * str_vecML_B_NH
         + idx_b_NC * L
         + idx_b_LQ * siz_b_LQ
         + tl.arange(0, siz_b_LQ)
     )
-    vecN_out_val = tl.load(vecN_out_ptr).to(tl.float32)
+    vecL_out_val = tl.load(vecN_out_ptr).to(tl.float32)
 
     # ? compute vecBbar for inter chunk contribution
     # load vecB_LQ (siz_b_LQ,)
@@ -101,12 +101,13 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
     # load vecM_out (siz_b_LQ,)
     vecM_out_ptr = (
         vecM_out
-        + idx_b_BNH * str_vecMN_B_NH
+        + idx_b_BNH * str_vecML_B_NH
         + idx_b_NC * L
         + idx_b_LQ * siz_b_LQ
         + tl.arange(0, siz_b_LQ)
     )
     vecM_out_val = tl.load(vecM_out_ptr).to(tl.float32)
+    vecN_out_val = tl.maximum(tl.abs(vecL_out_val), tl.exp(-vecM_out_val))
     # compute vecBbar (siz_b_LQ,)
     vecBbar_val = tl.exp(vecB_LQ_val + scaMinter_km1_val - vecM_out_val)
     # ? end compute vecBbar

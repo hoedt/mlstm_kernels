@@ -16,7 +16,7 @@ def mlstm_chunkwise__recurrent_bw_dC(
     scaM_inter: torch.Tensor,  # (B, NH, NC+1)
     vecM_combine: torch.Tensor,  # (B, NH, S)
     matDeltaH: torch.Tensor,  # (B, NH, S, DHHV)
-    vecN_out: torch.Tensor,  # (B, NH, S)
+    vecL_out: torch.Tensor,  # (B, NH, S)
     matDeltaC_last: torch.Tensor = None,  # (B, NH, DHQK, DHHV)
     qk_scale: float = None,
     chunk_size: int = 64,
@@ -77,7 +77,7 @@ def mlstm_chunkwise__recurrent_bw_dC(
         scaM_inter=scaM_inter,
         vecM_combine=vecM_combine,
         matDeltaH=matDeltaH,
-        vecN_out=vecN_out,
+        vecL_out=vecL_out,
         matDeltaC_last=matDeltaC_last,
         matDeltaC_states=matDeltaC_states,
         qk_scale=qk_scale,
@@ -92,8 +92,8 @@ def mlstm_chunkwise__recurrent_bw_dC(
         str_matDeltaH_B_NH=matDeltaH.stride(1),
         str_matDeltaH_S=matDeltaH.stride(2),
         str_matDeltaH_DHHV=matDeltaH.stride(3),
-        str_vecN_out_B_NH=vecN_out.stride(1),
-        str_vecN_out_S=vecN_out.stride(2),
+        str_vecL_out_B_NH=vecL_out.stride(1),
+        str_vecL_out_S=vecL_out.stride(2),
         str_matDeltaC_last_B_NH=matDeltaC_last.stride(1) if USE_LAST_STATE else 0,
         str_matDeltaC_last_DHQK=matDeltaC_last.stride(2) if USE_LAST_STATE else 0,
         str_matDeltaC_last_DHHV=matDeltaC_last.stride(3) if USE_LAST_STATE else 0,

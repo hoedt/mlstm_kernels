@@ -18,7 +18,7 @@ def mlstm_chunkwise__recurrent_bw_dC_kernel(
     scaM_inter,  # (B, NH, NC+1)
     vecM_combine,  # (B, NH, S)
     matDeltaH,  # (B, NH, S, DHHV)
-    vecN_out,  # (B, NH, S)
+    vecL_out,  # (B, NH, S)
     matDeltaC_last,  # (B, NH, DHQK, DHHV)
     matDeltaC_states,  # (B, NH, (NC+1) * DHQK, DHHV)
     qk_scale: tl.constexpr,
@@ -33,8 +33,8 @@ def mlstm_chunkwise__recurrent_bw_dC_kernel(
     str_matDeltaH_B_NH: tl.constexpr,
     str_matDeltaH_S: tl.constexpr,
     str_matDeltaH_DHHV: tl.constexpr,
-    str_vecN_out_B_NH: tl.constexpr,
-    str_vecN_out_S: tl.constexpr,
+    str_vecL_out_B_NH: tl.constexpr,
+    str_vecL_out_S: tl.constexpr,
     str_matDeltaC_last_B_NH: tl.constexpr,
     str_matDeltaC_last_DHQK: tl.constexpr,
     str_matDeltaC_last_DHHV: tl.constexpr,
@@ -153,9 +153,10 @@ def mlstm_chunkwise__recurrent_bw_dC_kernel(
         matQbar_k_val = (matQ_k_val * vecBbar_k_val[None, :] * qk_scale).to(DTYPE)
 
         # load vecN_out_k, matDeltaH_k
-        vecN_out_k_val = tl.load(
-            vecN_out + idx_b_NH * str_vecN_out_B_NH + (k - 1) * L + tl.arange(0, L)
+        vecL_out_k_val = tl.load(
+            vecL_out + idx_b_NH * str_vecL_out_B_NH + (k - 1) * L + tl.arange(0, L)
         ).to(tl.float32)  # (L,)
+        vecN_out_k_val = tl.maximum(tl.abs(vecL_out_k_val), tl.exp(-vecM_combine_k_val))
         matDeltaH_k_val = tl.load(matDeltaH_ptr, boundary_check=(0, 1)).to(
             tl.float32
         )  # (L, DHHV)

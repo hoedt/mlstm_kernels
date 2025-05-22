@@ -38,7 +38,7 @@ def mlstm_chunkwise_bw(
     matCstate_all: torch.Tensor = None,  # (B, NH, (NCsaved+1) * DHQK, DHHV)
     vecNstate_all: torch.Tensor = None,  # (B, NH, (NCsaved+1) * DHQK)
     scaMstate_all: torch.Tensor = None,  # (B, NH, (NCsaved+1))
-    vecN_out: torch.Tensor = None,  # (B, NH, S)
+    vecL_out: torch.Tensor = None,  # (B, NH, S)
     vecM_out: torch.Tensor = None,  # (B, NH, S)
     matDeltaH_out: torch.Tensor = None,  # (B, NH, S, DHHV)
     matDeltaC_last: torch.Tensor = None,  # (B, NH, DHQK, DHHV)
@@ -102,7 +102,7 @@ def mlstm_chunkwise_bw(
         scaM_inter=scaMstate_all,  # (B, NH, NCintra+1)
         vecM_combine=vecM_out,  # (B, NH, S)
         matDeltaH=matDeltaH_out,  # (B, NH, S, DHHV)
-        vecN_out=vecN_out,  # (B, NH, S)
+        vecL_out=vecL_out,  # (B, NH, S)
         matDeltaC_last=matDeltaC_last,  # (B, NH, DHQK, DHHV)
         qk_scale=qk_scale,
         chunk_size=kernel_chunk_params.chunk_size_inter,
@@ -128,7 +128,7 @@ def mlstm_chunkwise_bw(
         matCstate_all=matCstate_all,
         vecNstate_all=vecNstate_all,
         scaMstate_all=scaMstate_all,
-        vecN_out=vecN_out,
+        vecL_out=vecL_out,
         vecM_out=vecM_out,
         matDeltaH_out=matDeltaH_out,
         matDeltaC_states=matDeltaC_states,
@@ -155,7 +155,7 @@ def mlstm_chunkwise_bw(
         matCstate_all=matCstate_all,
         vecNstate_all=vecNstate_all,
         scaMstate_all=scaMstate_all,
-        vecN_out=vecN_out,
+        vecL_out=vecL_out,
         vecM_out=vecM_out,
         matDeltaH_out=matDeltaH_out,
         matDeltaC_states=matDeltaC_states,
@@ -182,7 +182,7 @@ def mlstm_chunkwise_bw(
         matCstate_all=matCstate_all,
         vecNstate_all=vecNstate_all,
         scaMstate_all=scaMstate_all,
-        vecN_out=vecN_out,
+        vecL_out=vecL_out,
         vecM_out=vecM_out,
         matDeltaH_out=matDeltaH_out,
         matDeltaC_states=matDeltaC_states,

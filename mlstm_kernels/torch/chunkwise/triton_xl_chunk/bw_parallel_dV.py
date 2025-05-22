@@ -22,7 +22,7 @@ def mlstm_chunkwise__parallel_bw_dV(
     matCstate_all: torch.Tensor,  # (B, NH, (NC+1) * DHQK, DHHV)
     vecNstate_all: torch.Tensor,  # (B, NH, (NC+1) * DHQK)
     scaMstate_all: torch.Tensor,  # (B, NH, (NC+1))
-    vecN_out: torch.Tensor,  # (B, NH, S) # vecN_combine
+    vecL_out: torch.Tensor,  # (B, NH, S) # vecN_combine
     vecM_out: torch.Tensor,  # (B, NH, S) # vecM_combine
     matDeltaH_out: torch.Tensor,  # (B, NH, S, DHHV)
     matDeltaC_states: torch.Tensor,  # (B, NH, (NC+1) * DHQK, DHHV)
@@ -94,7 +94,7 @@ def mlstm_chunkwise__parallel_bw_dV(
         matCstate_all=matCstate_all,
         vecNstate_all=vecNstate_all,
         scaMstate_all=scaMstate_all,
-        vecN_out=vecN_out,
+        vecL_out=vecL_out,
         vecM_out=vecM_out,
         matDeltaH_out=matDeltaH_out,
         matDeltaC_states=matDeltaC_states,
@@ -113,8 +113,8 @@ def mlstm_chunkwise__parallel_bw_dV(
         str_matCstate_DHHV=matCstate_all.stride(3),
         str_vecNstate_B_NH=vecNstate_all.stride(1),
         str_scaMstate_B_NH=scaMstate_all.stride(1),
-        str_vecMN_B_NH=vecN_out.stride(1),
-        str_vecMN_S=vecN_out.stride(2),
+        str_vecML_B_NH=vecL_out.stride(1),
+        str_vecML_S=vecL_out.stride(2),
         B=B,
         NH=NH,
         S=S,

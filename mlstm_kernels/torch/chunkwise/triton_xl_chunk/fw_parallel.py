@@ -33,7 +33,7 @@ def mlstm_chunkwise__parallel_fw_Hintra(
     output_dtype: torch.dtype = torch.float32,
 ) -> tuple[
     torch.Tensor, torch.Tensor, torch.Tensor
-]:  # matH_out (B, NH, S, DHHV), vecN_out (B, NH, S), vecM_out (B, NH, S)
+]:  # matH_out (B, NH, S, DHHV), vecL_out (B, NH, S), vecM_out (B, NH, S)
     """This function defines the grid and block sizes for the kernel launch and calls the kernel.
     chunk parallel size:        siz_b_LQ
     chunk loop size:            siz_b_LKV
@@ -77,7 +77,7 @@ def mlstm_chunkwise__parallel_fw_Hintra(
         num_warps = 4 if siz_b_DHQK >= 64 else 2
 
     matH_out = torch.empty(B, NH, S, DHHV, device=matQ.device, dtype=matQ.dtype)
-    vecN_out = torch.empty(B, NH, S, device=matQ.device, dtype=output_dtype)
+    vecL_out = torch.empty(B, NH, S, device=matQ.device, dtype=output_dtype)
     vecM_out = torch.empty(B, NH, S, device=matQ.device, dtype=output_dtype)
 
     vecB = compute_chunkwise_log_gates_vecB(vecF=vecF, chunk_size=chunk_size)
@@ -94,7 +94,7 @@ def mlstm_chunkwise__parallel_fw_Hintra(
         vecI=vecI,
         vecB=vecB,
         matHout=matH_out,
-        vecNout=vecN_out,
+        vecLout=vecL_out,
         vecMout=vecM_out,
         qk_scale=qk_scale,
         str_matQK_B_NH=matQ.stride(1),
@@ -112,8 +112,8 @@ def mlstm_chunkwise__parallel_fw_Hintra(
         str_vecBI_B_NH=vecB.stride(1),
         str_vecBI_NC=vecB.stride(2),
         str_vecBI_L=vecB.stride(3),
-        str_vecMN_B_NH=vecN_out.stride(1),
-        str_vecMN_S=vecN_out.stride(2),
+        str_vecML_B_NH=vecL_out.stride(1),
+        str_vecML_S=vecL_out.stride(2),
         B=B,
         NH=NH,
         S=S,
@@ -133,4 +133,4 @@ def mlstm_chunkwise__parallel_fw_Hintra(
         num_warps=num_warps,
     )
 
-    return matH_out, vecN_out, vecM_out
+    return matH_out, vecL_out, vecM_out

@@ -44,7 +44,7 @@ def mlstm_chunkwise_fw(
     eps: float = 0.0,
 ) -> tuple[
     torch.Tensor,  # matH_out (B, NH, S, DHHV)
-    torch.Tensor,  # vecN_out (B, NH, S)
+    torch.Tensor,  # vecL_out (B, NH, S)
     torch.Tensor,  # vecM_out (B, NH, S)
     None
     | (
@@ -86,7 +86,7 @@ def mlstm_chunkwise_fw(
     )
 
     #! compute the outputs within each chunk
-    matH_out, vecN_out, vecM_out = mlstm_chunkwise__parallel_fw_Hintra(
+    matH_out, vecL_out, vecM_out = mlstm_chunkwise__parallel_fw_Hintra(
         matQ=matQ,
         matK=matK,
         matV=matV,
@@ -109,7 +109,7 @@ def mlstm_chunkwise_fw(
 
     ret_tuple = (
         matH_out,
-        vecN_out,
+        vecL_out,
         vecM_out,
     )
     if return_last_states:
