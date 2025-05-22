@@ -37,8 +37,11 @@ def mlstm_chunkwise__recurrent_bw_dC_kernel(
     vecM_combine,  # (B, NH, S)
     matDeltaH,  # (B, NH, S, DHHV)
     vecL_out,  # (B, NH, S)
+    vecAux,  # (B, NH, S, 1)
     matDeltaC_last,  # (B, NH, DHQK, DHHV)
+    vecDeltaN_last,  # (B, NH, DHQK)
     matDeltaC_states,  # (B, NH, (NC+1) * DHQK, DHHV)
+    vecDeltaN_states,  # (B, NH, (NC+1) * DHQK)
     qk_scale,
     str_matQ_B_NH,
     str_matQ_S,
@@ -55,12 +58,18 @@ def mlstm_chunkwise__recurrent_bw_dC_kernel(
     str_matDeltaH_DHHV,
     str_vecL_out_B_NH,
     str_vecL_out_S,
+    str_vecAux_B_NH,
+    str_vecAux_S,
     str_matDeltaC_last_B_NH,
     str_matDeltaC_last_DHQK,
     str_matDeltaC_last_DHHV,
+    str_vecDeltaN_last_B_NH,
+    str_vecDeltaN_last_DHQK,
     str_matDeltaC_states_B_NH,
     str_matDeltaC_states_NCDHQK,
     str_matDeltaC_states_DHHV,
+    str_vecDeltaN_states_B_NH,
+    str_vecDeltaN_states_NCDHQK,
     B: tl.constexpr,
     NH: tl.constexpr,
     S: tl.constexpr,
@@ -82,6 +91,7 @@ def mlstm_chunkwise__recurrent_bw_dC_kernel(
 
     # create running deltaC error state in shared memory
     matDeltaC_k_val = tl.zeros((siz_b_DHQK, siz_b_DHHV), dtype=tl.float32)
+    vecDeltaN_k_val = tl.zeros((siz_b_DHQK, ), dtype=tl.float32)
 
     if USE_LAST_STATE:
         # each thread block loads a (siz_b_DHQK, siz_b_DHHV) tile of matDeltaC_last
@@ -93,10 +103,21 @@ def mlstm_chunkwise__recurrent_bw_dC_kernel(
             block_shape=(siz_b_DHQK, siz_b_DHHV),
             order=(1, 0),
         )
+        vecDeltaN_last_ptr = tl.make_block_ptr(
+            base=vecDeltaN_last + idx_b_NH * str_vecDeltaN_last_B_NH,
+            shape=(DHQK, ),
+            strides=(str_vecDeltaN_last_DHQK, ),
+            offsets=(idx_b_DHQK * siz_b_DHQK, ),
+            block_shape=(siz_b_DHQK, ),
+            order=(0, ),
+        )
         # load last state
         matDeltaC_k_val = tl.load(matDeltaC_last_ptr, boundary_check=(1, 0)).to(
             tl.float32
         )
+        vecDeltaN_k_val = tl.load(
+            vecDeltaN_last_ptr, boundary_check=(0, )
+        ).to(tl.float32)
 
     # iterate over chunks from last to first
     for k in range(NC, 0, -1):
@@ -128,11 +149,22 @@ def mlstm_chunkwise__recurrent_bw_dC_kernel(
             block_shape=(siz_b_DHQK, siz_b_DHHV),
             order=(1, 0),
         )
+        vecDeltaNstates_k_ptr = tl.make_block_ptr(
+            base=vecDeltaN_states + idx_b_NH * str_vecDeltaN_states_B_NH + k * DHQK,
+            shape=(DHQK, ),
+            strides=(str_vecDeltaN_states_NCDHQK, ),
+            offsets = (idx_b_DHQK * siz_b_DHQK, ),
+            block_shape=(siz_b_DHQK, ),
+            order=(0, ),
+        )
         # ? end pointers
 
         # * store matDeltaC_k_val from previous iteration in HBM
         tl.store(
             matDeltaCstates_k_ptr, matDeltaC_k_val.to(tl.float32), boundary_check=(0, 1)
+        )
+        tl.store(
+            vecDeltaNstates_k_ptr, vecDeltaN_k_val, boundary_check=(0, )
         )
 
         # * compute matDeltaC_km1_val
@@ -184,6 +216,14 @@ def mlstm_chunkwise__recurrent_bw_dC_kernel(
             matQbar_k_val, matDeltaH_k_val
         )
 
+        # compute vecDeltaN_km1
+        aux_k_val = tl.load(
+            vecAux + idx_b_NH * str_vecAux_B_NH + (k - 1) * L + tl.arange(0, L)
+        ).to(tl.float32)  # (L,)
+        vecDeltaN_k_val = scaGbar_k_val * vecDeltaN_k_val - tl.sum(
+            matQbar_k_val * aux_k_val[None, :], axis=1
+        )
+
     # * store the first state from the last iteration
     matDeltaCstates_0_ptr = tl.make_block_ptr(
         base=matDeltaC_states + idx_b_NH * str_matDeltaC_states_B_NH + 0,
@@ -193,6 +233,17 @@ def mlstm_chunkwise__recurrent_bw_dC_kernel(
         block_shape=(siz_b_DHQK, siz_b_DHHV),
         order=(1, 0),
     )
+    vecDeltaNstates_0_ptr = tl.make_block_ptr(
+        base=vecDeltaN_states + idx_b_NH * str_vecDeltaN_states_B_NH + 0,
+        shape=(DHQK, ),
+        strides=(str_vecDeltaN_states_NCDHQK, ),
+        offsets=(idx_b_DHQK * siz_b_DHQK, ),
+        block_shape=(siz_b_DHQK, ),
+        order=(0, ),
+    )
     tl.store(
         matDeltaCstates_0_ptr, matDeltaC_k_val.to(tl.float32), boundary_check=(0, 1)
+    )
+    tl.store(
+        vecDeltaNstates_0_ptr, vecDeltaN_k_val.to(tl.float32), boundary_check=(0, )
     )
