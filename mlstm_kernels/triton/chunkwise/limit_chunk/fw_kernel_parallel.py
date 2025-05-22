@@ -40,7 +40,7 @@ def mlstm_chunkwise__parallel_fw_H_kernel(
     vecI,  # (B, NH, NC, L)
     vecB,  # (B, NH, NC, L)
     matHout,  # (B, NH, S, DHHV)
-    vecNout,  # (B, NH, S)
+    vecLout,  # (B, NH, S)
     vecMout,  # (B, NH, S)
     qk_scale,
     str_matQK_B_NH,
@@ -201,8 +201,9 @@ def mlstm_chunkwise__parallel_fw_H_kernel(
     matH_num_val = matH_inter_val + matH_intra_val
 
     # compute H_k_denom (L,)
+    vecL_denom_val = vecH_inter_denom_val + vecH_intra_denom_val
     vecH_denom_val = tl.maximum(
-        tl.abs(vecH_inter_denom_val + vecH_intra_denom_val), tl.exp(-vecM_combine_val)
+        tl.abs(vecL_denom_val), tl.exp(-vecM_combine_val)
     )
 
     # compute matH_k_out (L, siz_b_DHHV)
@@ -217,8 +218,8 @@ def mlstm_chunkwise__parallel_fw_H_kernel(
         block_shape=(L, siz_b_DHHV),
         order=(1, 0),
     )
-    vecNout_ptr = (
-        vecNout
+    vecLout_ptr = (
+        vecLout
         + idx_b_BNH * str_vecMN_B_NH
         + (idx_b_NC * L + tl.arange(0, L)) * str_vecMN_S
     )
@@ -228,5 +229,5 @@ def mlstm_chunkwise__parallel_fw_H_kernel(
         + (idx_b_NC * L + tl.arange(0, L)) * str_vecMN_S
     )
     tl.store(matHout_ptr, matHout_val.to(DTYPE), boundary_check=(0, 1))
-    tl.store(vecNout_ptr, vecH_denom_val.to(tl.float32))
+    tl.store(vecLout_ptr, vecL_denom_val.to(tl.float32))
     tl.store(vecMout_ptr, vecM_combine_val.to(tl.float32))
