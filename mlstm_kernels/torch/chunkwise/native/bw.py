@@ -206,7 +206,6 @@ def _mlstm_chunkwise__parallel_bw_dQKV(
 
 
 def _mlstm_chunkwise__recurrent_bw_dQKV(
-    matQ: torch.Tensor,  # (B, NH, S, DHQK)
     matK: torch.Tensor,  # (B, NH, S, DHQK)
     matV: torch.Tensor,  # (B, NH, S, DHV)
     vecB: torch.Tensor,  # (B, NH, NC, L)
@@ -227,7 +226,7 @@ def _mlstm_chunkwise__recurrent_bw_dQKV(
 ) -> tuple[
     torch.Tensor, torch.Tensor, torch.Tensor
 ]:  # matDeltaQ (B,NH,S,DHQK), matDeltaK (B,NH,S,DHQK), matDeltaV (B,NH,S,DHV)
-    B, NH, S, DHQK, DHV = *matQ.shape, matV.shape[-1]
+    B, NH, S, DHQK, DHV = *matK.shape, matV.shape[-1]
     NC = num_chunks
     L = chunk_size
 
@@ -241,7 +240,6 @@ def _mlstm_chunkwise__recurrent_bw_dQKV(
 
     matDeltaH = rearrange(matDeltaH, "b nh (nc l) dh -> b nh nc l dh", l=L)
 
-    matQ = rearrange(matQ, "b nh (nc l) dh -> b nh nc l dh", l=L)
     matK = rearrange(matK, "b nh (nc l) dh -> b nh nc l dh", l=L)
     matV = rearrange(matV, "b nh (nc l) dh -> b nh nc l dh", l=L)
     aux = rearrange(aux, "b nh (nc l) 1 -> b nh nc l 1", l=L)
@@ -398,7 +396,6 @@ def mlstm_chunkwise_bw(
     vecDeltaN_k_states = vecDeltaN_states[:, :, DHQK:]  # take the last NC states
 
     matDeltaQ_inter, matDeltaK_inter, matDeltaV_inter = _mlstm_chunkwise__recurrent_bw_dQKV(
-        matQ=matQ,
         matK=matK,
         matV=matV,
         vecB=vecB,
@@ -434,7 +431,7 @@ def mlstm_chunkwise_bw(
         matDeltaC_states[:, :, :DHQK, :] if matC_initial is not None else None
     )
     vecDeltaN_initial = (
-        torch.zeros_like(vecN_initial) if vecN_initial is not None else None
+        vecDeltaN_states[:, :, :DHQK] if vecN_initial is not None else None
     )
     scaDeltaM_initial = (
         torch.zeros_like(scaM_initial) if scaM_initial is not None else None
