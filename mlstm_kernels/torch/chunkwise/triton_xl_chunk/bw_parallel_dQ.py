@@ -16,7 +16,6 @@ def mlstm_chunkwise__parallel_bw_dQ(
     matK: torch.Tensor,  # (B, NH, S, DHQK)
     matV: torch.Tensor,  # (B, NH, S, DHHV)
     vecI: torch.Tensor,  # (B, NH, NC, L)
-    vecA: torch.Tensor,  # (B, NH, NC, L)
     vecB: torch.Tensor,  # (B, NH, NC, L)
     ## Backward arguments
     matCstate_all: torch.Tensor,  # (B, NH, (NC+1) * DHQK, DHHV)
@@ -24,8 +23,8 @@ def mlstm_chunkwise__parallel_bw_dQ(
     scaMstate_all: torch.Tensor,  # (B, NH, (NC+1))
     vecL_out: torch.Tensor,  # (B, NH, S) # vecN_combine
     vecM_out: torch.Tensor,  # (B, NH, S) # vecM_combine
+    vecAux: torch.Tensor,
     matDeltaH_out: torch.Tensor,  # (B, NH, S, DHHV)
-    matDeltaC_states: torch.Tensor,  # (B, NH, (NC+1) * DHQK, DHHV)
     ## Other arguments
     qk_scale: float = None,
     chunk_size: int = 64,
@@ -37,7 +36,9 @@ def mlstm_chunkwise__parallel_bw_dQ(
     num_stages: int | None = None,
     eps: float = 0.0,
     output_dtype: torch.dtype = torch.float32,
-) -> torch.Tensor:  # matDeltaQ (B, NH, S, DHQK)
+) -> tuple[
+    torch.Tensor, torch.Tensor
+]:  # matDeltaQ (B, NH, S, DHQK), vecAux (B, NH, S, 1)
     """This function defines the grid and block sizes for the kernel launch and calls the kernel.
     chunk parallel size:        siz_b_LQ
     chunk loop size:            siz_b_LKV
@@ -82,6 +83,7 @@ def mlstm_chunkwise__parallel_bw_dQ(
         num_warps = 4 if (siz_b_DHQK >= 64 or siz_b_DHHV >= 64) else 2
 
     matDeltaQ = torch.empty(B, NH, S, DHQK, device=matQ.device, dtype=output_dtype)
+    vecAux = vecAux.clone()
 
     grid = (num_b_DHQK, num_b_LQ, NC * B * NH)
 
@@ -91,15 +93,14 @@ def mlstm_chunkwise__parallel_bw_dQ(
         matV=matV,
         vecI=vecI,
         vecB=vecB,
-        vecA=vecA,
         matCstate_all=matCstate_all,
         vecNstate_all=vecNstate_all,
         scaMstate_all=scaMstate_all,
         vecL_out=vecL_out,
         vecM_out=vecM_out,
         matDeltaH_out=matDeltaH_out,
-        matDeltaC_states=matDeltaC_states,
         matDeltaQ=matDeltaQ,
+        vecAux=vecAux,
         qk_scale=qk_scale,
         str_matQK_B_NH=matQ.stride(1),
         str_matQK_S=matQ.stride(2),
@@ -116,6 +117,8 @@ def mlstm_chunkwise__parallel_bw_dQ(
         str_scaMstate_B_NH=scaMstate_all.stride(1),
         str_vecML_B_NH=vecL_out.stride(1),
         str_vecML_S=vecL_out.stride(2),
+        str_vecAux_B_NH=vecAux.stride(1),
+        str_vecAux_S=vecAux.stride(2),
         B=B,
         NH=NH,
         S=S,
@@ -134,4 +137,4 @@ def mlstm_chunkwise__parallel_bw_dQ(
         num_warps=num_warps,
     )
 
-    return matDeltaQ
+    return matDeltaQ, vecAux

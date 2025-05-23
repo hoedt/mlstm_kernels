@@ -17,18 +17,17 @@ import triton.language as tl
 def mlstm_chunkwise__parallel_bw_dK_kernel(
     ## input tensor pointers
     matQ,  # (B, NH, S, DHQK)
-    matK,  # (B, NH, S, DHQK)
     matV,  # (B, NH, S, DHHV)
     vecI,  # (B, NH, NC, L)
     vecB,  # (B, NH, NC, L)
     vecA,  # (B, NH, NC, L)
-    matCstate_all,  # (B, NH, (NC+1) * DHQK, DHHV)
-    vecNstate_all,  # (B, NH, (NC+1) * DHQK)
     scaMstate_all,  # (B, NH, (NC+1))
     vecL_out,  # (B, NH, S) # vecN_combine
     vecM_out,  # (B, NH, S) # vecM_combine
+    vecAux,  # (B, NH, S, 1)
     matDeltaH_out,  # (B, NH, S, DHHV)
     matDeltaC_states,  # (B, NH, (NC+1) * DHQK, DHHV)
+    vecDeltaN_states,  # (B, NH, (NC+1) * DHQK)
     ## output tensor pointers
     matDeltaK,  # (B, NH, S, DHQK)
     qk_scale: tl.constexpr,
@@ -103,6 +102,19 @@ def mlstm_chunkwise__parallel_bw_dK_kernel(
     # compute vecAbar_val (siz_b_LKV,)
     vecAbar_val = tl.exp(vecA_val - scaMinter_k_val)
 
+    vecDeltaN_ptr = tl.make_block_ptr(
+        base=vecDeltaN_states + idx_b_BNH * str_vecNstate_B_NH
+        + (idx_b_NC + 1) * DHQK,
+        shape=(DHQK, ),
+        strides=(1, ),  # assumes contiguous memory
+        offsets=(idx_b_DHQK * siz_b_DHQK, ),
+        block_shape=(siz_b_DHQK, ),
+        order=(0, ),
+    )
+    vecDeltaN_val = tl.load(
+        vecDeltaN_ptr, boundary_check=(0, )
+    ).to(DTYPE)
+
     # for causal masking
     b_kv_offset_start = idx_b_LKV * siz_b_LKV
     b_kv_offset_end = (idx_b_LKV + 1) * siz_b_LKV
@@ -169,7 +181,10 @@ def mlstm_chunkwise__parallel_bw_dK_kernel(
                 ).to(DTYPE)
 
                 # compute matDeltaKbar_inter (siz_b_LKV, siz_b_DHHV)
-                matDeltaKbar_inter_val = tl.dot(matV_val, matDeltaC_trans_val)
+                matDeltaKbar_inter_val = (
+                    tl.dot(matV_val, matDeltaC_trans_val)
+                    + vecDeltaN_val[None, :]
+                )
 
                 # compute matDeltaK_inter (siz_b_LKV, siz_b_DHHV)
                 matDeltaK_acc += matDeltaKbar_inter_val * vecAbar_val[:, None]
@@ -228,7 +243,15 @@ def mlstm_chunkwise__parallel_bw_dK_kernel(
         ### end compute matD tile
 
         # compute matDeltaS^T (siz_b_LKV, siz_b_LQ)
-        matDeltaS_trans_val = matDeltaSbar_trans_acc * qk_scale * matD_trans_val
+        vecAux_ptr = (
+            vecAux + idx_b_BNH * str_vecML_B_NH
+            + idx_b_NC * L + idx_b_LQ * siz_b_LQ
+            + tl.arange(0, siz_b_LQ)
+        )
+        vecAux_val = tl.load(vecAux_ptr)
+        matDeltaS_trans_val = (
+            matDeltaSbar_trans_acc - vecAux_val
+        ) * qk_scale * matD_trans_val
 
         # load matQ (siz_b_LQ, siz_b_DHQK)
         matQ_ptr = tl.make_block_ptr(

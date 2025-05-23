@@ -21,16 +21,12 @@ def mlstm_chunkwise__parallel_bw_dV_kernel(
     matV,  # (B, NH, S, DHHV)
     vecI,  # (B, NH, NC, L)
     vecB,  # (B, NH, NC, L)
-    vecA,  # (B, NH, NC, L)
-    matCstate_all,  # (B, NH, (NC+1) * DHQK, DHHV)
-    vecNstate_all,  # (B, NH, (NC+1) * DHQK)
-    scaMstate_all,  # (B, NH, (NC+1))
     vecL_out,  # (B, NH, S) # vecN_combine
     vecM_out,  # (B, NH, S) # vecM_combine
     matDeltaH_out,  # (B, NH, S, DHHV)
-    matDeltaC_states,  # (B, NH, (NC+1) * DHQK, DHHV)
     ## output tensor pointers
     matDeltaV,  # (B, NH, S, DHHV)
+    vecAux,
     qk_scale: tl.constexpr,
     ## strides
     str_matQK_B_NH: tl.constexpr,
@@ -41,13 +37,10 @@ def mlstm_chunkwise__parallel_bw_dV_kernel(
     str_matHV_DHHV: tl.constexpr,
     str_vecABI_B_NH: tl.constexpr,
     str_vecABI_NC: tl.constexpr,
-    str_matCstate_B_NH: tl.constexpr,
-    str_matCstate_NCDHQK: tl.constexpr,
-    str_matCstate_DHHV: tl.constexpr,
-    str_vecNstate_B_NH: tl.constexpr,
-    str_scaMstate_B_NH: tl.constexpr,
     str_vecML_B_NH: tl.constexpr,
     str_vecML_S: tl.constexpr,
+    str_vecAux_B_NH: tl.constexpr,
+    str_vecAux_S: tl.constexpr,
     ## dimensions
     B: tl.constexpr,
     NH: tl.constexpr,
@@ -86,27 +79,20 @@ def mlstm_chunkwise__parallel_bw_dV_kernel(
     vecI_LKV_ptr = vecI_ptr + idx_b_LKV * siz_b_LKV + tl.arange(0, siz_b_LKV)
     vecI_LKV_val = tl.load(vecI_LKV_ptr).to(tl.float32)
 
-    # ? compute vecAbar for inter chunk contribution
-    # load scaM_val (1,)
-    scaMinter_k_val = tl.load(scaMstate_all + idx_b_BNH * (NC + 1) + (idx_b_NC + 1)).to(
-        tl.float32
-    )
-    # load vecA (siz_b_LKV,)
-    vecA_ptr = (
-        vecA
-        + idx_b_BNH * str_vecABI_B_NH
-        + idx_b_NC * str_vecABI_NC
-        + idx_b_LKV * siz_b_LKV
-        + tl.arange(0, siz_b_LKV)
-    )
-    vecA_val = tl.load(vecA_ptr).to(tl.float32)
-    # compute vecAbar_val (siz_b_LKV,)
-    vecAbar_val = tl.exp(vecA_val - scaMinter_k_val)
-
     # for causal masking
     b_kv_offset_start = idx_b_LKV * siz_b_LKV
     b_kv_offset_end = (idx_b_LKV + 1) * siz_b_LKV
     b_kv_idxes = b_kv_offset_start + tl.arange(0, siz_b_LKV)
+
+    matV_ptr = tl.make_block_ptr(
+        base=matV + idx_b_BNH * str_matHV_B_NH,
+        shape=(S, DHHV),
+        strides=(str_matHV_S, str_matHV_DHHV),
+        offsets=(idx_b_NC * L + idx_b_LKV * siz_b_LKV, idx_b_DHHV * siz_b_DHHV),
+        block_shape=(siz_b_LKV, siz_b_DHHV),
+        order=(1, 0),
+    )
+    matV_val = tl.load(matV_ptr).to(tl.float32)
 
     #! intra chunk contribution
     # init matDeltaV accumulator (siz_b_LKV, siz_b_DHHV)
@@ -131,30 +117,6 @@ def mlstm_chunkwise__parallel_bw_dV_kernel(
                 order=(1, 0),
             )
             matK_val = tl.load(matK_ptr, boundary_check=(0, 1)).to(tl.float32)
-
-            #! inter chunk contribution
-            # compute this only on the first iteration
-            if idx_b_LQ == idx_b_LQ_start:
-                # compute matKbar (siz_b_LKV, siz_b_DHQK)
-                matKbar_val = matK_val * vecAbar_val[:, None]
-
-                # load matDeltaC (siz_b_DHQK, siz_b_DHHV)
-                # (idx_b_NC + 1) since matDeltaC_states contains all state delta errors also for the initial state (i.e. NC+1)
-                # and in this kernel we take only the last NC states (we do not consider the initial state delta error)
-                matDeltaC_ptr = tl.make_block_ptr(
-                    base=matDeltaC_states
-                    + idx_b_BNH * str_matCstate_B_NH
-                    + (idx_b_NC + 1) * DHQK * DHHV,
-                    shape=(DHQK, DHHV),
-                    strides=(str_matCstate_NCDHQK, str_matCstate_DHHV),
-                    offsets=(idx_b_DHQK * siz_b_DHQK, idx_b_DHHV * siz_b_DHHV),
-                    block_shape=(siz_b_DHQK, siz_b_DHHV),
-                    order=(1, 0),
-                )
-                matDeltaC_val = tl.load(matDeltaC_ptr, boundary_check=(0, 1)).to(DTYPE)
-
-                # compute matDeltaV_inter (siz_b_LKV, siz_b_DHHV)
-                matDeltaV_acc += tl.dot(matKbar_val.to(DTYPE), matDeltaC_val)
 
             ### load matQ_trans (transposed) (siz_b_DHQK, siz_b_LQ)
             matQ_trans_ptr = tl.make_block_ptr(
@@ -236,7 +198,131 @@ def mlstm_chunkwise__parallel_bw_dV_kernel(
         matDeltaV_acc += tl.dot(
             matSbar_trans_val.to(DTYPE), matDeltaH_intra_val.to(DTYPE)
         )
+
+        matNumerator_par_val = tl.dot(tl.trans(matSbar_trans_val.to(DTYPE)), matV_val.to(DTYPE))
+        vecAux_ptr = vecAux + idx_b_BNH * str_vecAux_B_NH + idx_b_NC * L + idx_b_LQ * siz_b_LQ + tl.arange(0, siz_b_LQ)
+        vecAux_val = tl.sum(matNumerator_par_val * matDeltaH_intra_val, axis=1)
+        tl.atomic_add(vecAux_ptr, vecAux_val)
         ##? end siz_b_LQ loop
+
+    # store matDeltaV (siz_b_LKV, siz_b_DHHV)
+    matDeltaV_ptr = tl.make_block_ptr(
+        base=matDeltaV + idx_b_BNH * str_matHV_B_NH,
+        shape=(S, DHHV),
+        strides=(str_matHV_S, str_matHV_DHHV),
+        offsets=(idx_b_NC * L + idx_b_LKV * siz_b_LKV, idx_b_DHHV * siz_b_DHHV),
+        block_shape=(siz_b_LKV, siz_b_DHHV),
+        order=(1, 0),
+    )
+    tl.store(matDeltaV_ptr, matDeltaV_acc.to(OUTPUT_DTYPE), boundary_check=(0, 1))
+
+
+@triton.jit
+def mlstm_chunkwise__recurrent_bw_dV_kernel(
+    ## input tensor pointers
+    matK,  # (B, NH, S, DHQK)
+    vecA,  # (B, NH, NC, L)
+    scaMstate_all,  # (B, NH, (NC+1))
+    matDeltaC_states,  # (B, NH, (NC+1) * DHQK, DHHV)
+    ## output tensor pointers
+    matDeltaV,  # (B, NH, S, DHHV)
+    ## strides
+    str_matQK_B_NH: tl.constexpr,
+    str_matQK_S: tl.constexpr,
+    str_matQK_DHQK: tl.constexpr,
+    str_matHV_B_NH: tl.constexpr,
+    str_matHV_S: tl.constexpr,
+    str_matHV_DHHV: tl.constexpr,
+    str_vecABI_B_NH: tl.constexpr,
+    str_vecABI_NC: tl.constexpr,
+    str_matCstate_B_NH: tl.constexpr,
+    str_matCstate_NCDHQK: tl.constexpr,
+    str_matCstate_DHHV: tl.constexpr,
+    ## dimensions
+    B: tl.constexpr,
+    NH: tl.constexpr,
+    S: tl.constexpr,
+    DHQK: tl.constexpr,
+    DHHV: tl.constexpr,
+    NC: tl.constexpr,
+    L: tl.constexpr,
+    ## block sizes
+    siz_b_LQ: tl.constexpr,
+    siz_b_LKV: tl.constexpr,
+    siz_b_DHQK: tl.constexpr,
+    siz_b_DHHV: tl.constexpr,
+    ## other arguments
+    DTYPE: tl.constexpr = tl.float32,
+    OUTPUT_DTYPE: tl.constexpr = tl.float32,
+    EPS: tl.constexpr = 0.0,
+):
+    # our grid has 4 dimensions: (num_b_DHHV, num_b_LKV, NC, B * NH)
+    idx_b_DHHV, idx_b_LKV, idx_b_NC_BNH = (
+        tl.program_id(0),
+        tl.program_id(1),
+        tl.program_id(2),
+    )
+    idx_b_NC = idx_b_NC_BNH % NC
+    idx_b_BNH = idx_b_NC_BNH // NC
+
+    # ? compute vecAbar for inter chunk contribution
+    # load scaM_val (1,)
+    scaMinter_k_val = tl.load(scaMstate_all + idx_b_BNH * (NC + 1) + (idx_b_NC + 1)).to(
+        tl.float32
+    )
+    # load vecA (siz_b_LKV,)
+    vecA_ptr = (
+        vecA
+        + idx_b_BNH * str_vecABI_B_NH
+        + idx_b_NC * str_vecABI_NC
+        + idx_b_LKV * siz_b_LKV
+        + tl.arange(0, siz_b_LKV)
+    )
+    vecA_val = tl.load(vecA_ptr).to(tl.float32)
+    # compute vecAbar_val (siz_b_LKV,)
+    vecAbar_val = tl.exp(vecA_val - scaMinter_k_val)
+
+    #! intra chunk contribution
+    # init matDeltaV accumulator (siz_b_LKV, siz_b_DHHV)
+    matDeltaV_acc = tl.zeros([siz_b_LKV, siz_b_DHHV], dtype=tl.float32)
+    ## compute matS block (siz_b_LQ, siz_b_LKV) -> matS^T (siz_b_LKV, siz_b_LQ)
+    ## init matS^T block accumulator (siz_b_LKV, siz_b_LQ)
+    ###? loop over siz_b_DHQK blocks
+    for idx_b_DHQK in range(tl.cdiv(DHQK, siz_b_DHQK)):
+        ### load matK (non-transposed) (siz_b_LKV, siz_b_DHQK)
+        matK_ptr = tl.make_block_ptr(
+            base=matK + idx_b_BNH * str_matQK_B_NH,
+            shape=(S, DHQK),
+            strides=(str_matQK_S, str_matQK_DHQK),
+            offsets=(idx_b_NC * L + idx_b_LKV * siz_b_LKV, idx_b_DHQK * siz_b_DHQK),
+            block_shape=(siz_b_LKV, siz_b_DHQK),
+            order=(1, 0),
+        )
+        matK_val = tl.load(matK_ptr, boundary_check=(0, 1)).to(tl.float32)
+
+        #! inter chunk contribution
+        # compute matKbar (siz_b_LKV, siz_b_DHQK)
+        matKbar_val = matK_val * vecAbar_val[:, None]
+
+        # load matDeltaC (siz_b_DHQK, siz_b_DHHV)
+        # (idx_b_NC + 1) since matDeltaC_states contains all state delta errors also for the initial state (i.e. NC+1)
+        # and in this kernel we take only the last NC states (we do not consider the initial state delta error)
+        matDeltaC_ptr = tl.make_block_ptr(
+            base=matDeltaC_states
+            + idx_b_BNH * str_matCstate_B_NH
+            + (idx_b_NC + 1) * DHQK * DHHV,
+            shape=(DHQK, DHHV),
+            strides=(str_matCstate_NCDHQK, str_matCstate_DHHV),
+            offsets=(idx_b_DHQK * siz_b_DHQK, idx_b_DHHV * siz_b_DHHV),
+            block_shape=(siz_b_DHQK, siz_b_DHHV),
+            order=(1, 0),
+        )
+        matDeltaC_val = tl.load(matDeltaC_ptr, boundary_check=(0, 1)).to(DTYPE)
+
+        # compute matDeltaV_inter (siz_b_LKV, siz_b_DHHV)
+        matDeltaV_acc += tl.dot(matKbar_val.to(DTYPE), matDeltaC_val)
+
+    ###? end siz_b_DHQK loop
 
     # store matDeltaV (siz_b_LKV, siz_b_DHHV)
     matDeltaV_ptr = tl.make_block_ptr(
