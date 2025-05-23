@@ -79,7 +79,7 @@ def mlstm_chunkwise__parallel_bw_dV(
         num_warps = 4 if (siz_b_DHQK >= 64 or siz_b_DHHV >= 64) else 2
 
     matDeltaV = torch.empty(B, NH, S, DHHV, device=matQ.device, dtype=output_dtype)
-    vecAux = torch.zeros(B, NH, S, 1, device=matQ.device, dtype=output_dtype)
+    vecAux = torch.zeros(B, NH, S, 1, device=matQ.device, dtype=torch.float)
     grid = (num_b_DHHV, num_b_LKV, NC * B * NH)
 
     mlstm_chunkwise__parallel_bw_dV_kernel[grid](
