@@ -193,7 +193,7 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
                         order=(1, 0),
                     )
                     matC_val = tl.load(matC_km1_ptr, boundary_check=(0, 1)).to(DTYPE)
-                    matQbar_val = matQ_val * vecBbar_val[:, None] * qk_scale
+                    matQbar_val = (matQ_val * vecBbar_val[:, None] * qk_scale).to(DTYPE)
                     num_common_rec += tl.dot(matQbar_val, matC_val)
 
                 vecAux_acc += tl.sum(
@@ -317,4 +317,4 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
     tl.store(matDeltaQ_ptr, matDeltaQ_acc.to(OUTPUT_DTYPE), boundary_check=(0, 1))
 
     if idx_b_DHQK == 0:
-        tl.store(vecAux_ptr, vecAux_acc.to(OUTPUT_DTYPE), boundary_check=(0, ))
+        tl.store(vecAux_ptr, vecAux_acc.to(tl.float32), boundary_check=(0, ))
