@@ -21,16 +21,15 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
     matV,  # (B, NH, S, DHHV)
     vecI,  # (B, NH, NC, L)
     vecB,  # (B, NH, NC, L)
-    vecA,  # (B, NH, NC, L)
     matCstate_all,  # (B, NH, (NC+1) * DHQK, DHHV)
     vecNstate_all,  # (B, NH, (NC+1) * DHQK)
     scaMstate_all,  # (B, NH, (NC+1))
     vecL_out,  # (B, NH, S) # vecN_combine
     vecM_out,  # (B, NH, S) # vecM_combine
     matDeltaH_out,  # (B, NH, S, DHHV)
-    matDeltaC_states,  # (B, NH, (NC+1) * DHQK, DHHV)
     ## output tensor pointers
     matDeltaQ,  # (B, NH, S, DHQK)
+    vecAux,
     qk_scale: tl.constexpr,
     ## strides
     str_matQK_B_NH: tl.constexpr,
@@ -48,6 +47,8 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
     str_scaMstate_B_NH: tl.constexpr,
     str_vecML_B_NH: tl.constexpr,
     str_vecML_S: tl.constexpr,
+    str_vecAux_B_NH: tl.constexpr,
+    str_vecAux_S: tl.constexpr,
     ## dimensions
     B: tl.constexpr,
     NH: tl.constexpr,
@@ -116,6 +117,28 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
     b_q_offset = idx_b_LQ * siz_b_LQ
     b_q_idxes = b_q_offset + tl.arange(0, siz_b_LQ)
 
+    vecN_km1_ptr = tl.make_block_ptr(
+        base=vecNstate_all
+        + idx_b_BNH * str_vecNstate_B_NH
+        + idx_b_NC * DHQK,
+        shape=(DHQK, ),
+        strides=(1, ),  # assumes contiguous memory
+        offsets=(idx_b_DHQK * siz_b_DHQK, ),
+        block_shape=(siz_b_DHQK, ),
+        order=(0, ),
+    )
+    vecN_val = tl.load(vecN_km1_ptr, boundary_check=(0, ))
+
+    vecAux_ptr = tl.make_block_ptr(
+        base=vecAux + idx_b_BNH * str_vecAux_B_NH,
+        shape=(S, 1),
+        strides=(str_vecAux_S, 0),
+        offsets=(idx_b_NC * L + idx_b_LQ * siz_b_LQ, 0),
+        block_shape=(siz_b_LQ, 1),
+        order=(1, 0),
+    )
+    vecAux_acc = tl.load(vecAux_ptr, boundary_check=(0, ))
+
     #! intra chunk contribution
     # init matDeltaQ accumulator (siz_b_LQ, siz_b_DHQK)
     matDeltaQ_acc = tl.zeros([siz_b_LQ, siz_b_DHQK], dtype=tl.float32)
@@ -145,6 +168,39 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
             #! inter chunk contribution
             # compute this only on the first iteration
             if idx_b_LKV == 0:
+                num_common_rec = tl.zeros([siz_b_LQ, siz_b_DHHV], dtype=tl.float32)
+                for idx_b_DHQK2 in range(tl.cdiv(DHQK, siz_b_DHQK)):
+                    matQ_ptr = tl.make_block_ptr(
+                        base=matQ + idx_b_BNH * str_matQK_B_NH,
+                        shape=(S, DHQK),
+                        strides=(str_matQK_S, str_matQK_DHQK),
+                        offsets=(
+                            idx_b_NC * L + idx_b_LQ * siz_b_LQ,
+                            idx_b_DHQK2 * siz_b_DHQK,
+                        ),
+                        block_shape=(siz_b_LQ, siz_b_DHQK),
+                        order=(1, 0),
+                    )
+                    matQ_val = tl.load(matQ_ptr, boundary_check=(0, 1)).to(DTYPE)
+                    matC_km1_ptr = tl.make_block_ptr(
+                        base=matCstate_all
+                        + idx_b_BNH * str_matCstate_B_NH
+                        + idx_b_NC * DHQK * DHHV,
+                        shape=(DHQK, DHHV),
+                        strides=(str_matCstate_NCDHQK, str_matCstate_DHHV),
+                        offsets=(idx_b_DHQK2 * siz_b_DHQK, idx_b_DHHV * siz_b_DHHV),
+                        block_shape=(siz_b_DHQK, siz_b_DHHV),
+                        order=(1, 0),
+                    )
+                    matC_val = tl.load(matC_km1_ptr, boundary_check=(0, 1)).to(DTYPE)
+                    matQbar_val = matQ_val * vecBbar_val[:, None] * qk_scale
+                    num_common_rec += tl.dot(matQbar_val, matC_val)
+
+                vecAux_acc += tl.sum(
+                    num_common_rec * matDeltaH_val / (vecN_out_val[:, None] + EPS),
+                    axis=1, keep_dims=True
+                )
+
                 # load matC_km1_trans (transposed) (siz_b_DHHV, siz_b_DHQK)
                 # idx_b_NC corresponds to k-1
                 matC_km1_trans_ptr = tl.make_block_ptr(
@@ -190,6 +246,15 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
 
             ###? end siz_b_DHQK loop
 
+        if idx_b_LKV == 0:
+            vecAux_acc *= tl.where(
+                tl.abs(vecL_out_val) > tl.exp(-vecM_out_val),
+                1 / vecL_out_val,
+                0
+            )[:, None]
+
+        matDeltaQ_acc -= qk_scale * vecBbar_val[:, None] * vecAux_acc * vecN_val[None, :]
+
         ###? compute matD tile (siz_b_LQ, siz_b_LKV)
         # load vecI_LKV (siz_b_LKV,)
         vecI_LKV_ptr = vecI_ptr + idx_b_LKV * siz_b_LKV + tl.arange(0, siz_b_LKV)
@@ -223,7 +288,7 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
         matDeltaSbar_acc = matDeltaSbar_acc / (vecN_out_val[:, None] + EPS)
 
         # compute matDeltaS (siz_b_LQ, siz_b_LKV)
-        matDeltaS_val = matDeltaSbar_acc * qk_scale * matD_val
+        matDeltaS_val = (matDeltaSbar_acc - vecAux_acc) * qk_scale * matD_val
 
         # load matK (siz_b_LKV, siz_b_DHQK)
         matK_ptr = tl.make_block_ptr(
@@ -250,3 +315,6 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
         order=(1, 0),
     )
     tl.store(matDeltaQ_ptr, matDeltaQ_acc.to(OUTPUT_DTYPE), boundary_check=(0, 1))
+
+    if idx_b_DHQK == 0:
+        tl.store(vecAux_ptr, vecAux_acc.to(OUTPUT_DTYPE), boundary_check=(0, ))

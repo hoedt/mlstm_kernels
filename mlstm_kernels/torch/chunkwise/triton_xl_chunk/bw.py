@@ -14,7 +14,7 @@ from ....triton.chunkwise.kernel_param_heuristics import (
 from ...utils import contiguous_noctx
 from .bw_parallel_dK import mlstm_chunkwise__parallel_bw_dK
 from .bw_parallel_dQ import mlstm_chunkwise__parallel_bw_dQ
-from .bw_parallel_dV import mlstm_chunkwise__parallel_bw_dV
+from .bw_parallel_dV import mlstm_chunkwise__parallel_bw_dV, mlstm_chunkwise__recurrent_bw_dV
 from .bw_recurrent import mlstm_chunkwise__recurrent_bw_dC
 from .chunkwise_gates import (
     compute_chunkwise_log_gates_vecB_vecA,
@@ -42,6 +42,8 @@ def mlstm_chunkwise_bw(
     vecM_out: torch.Tensor = None,  # (B, NH, S)
     matDeltaH_out: torch.Tensor = None,  # (B, NH, S, DHHV)
     matDeltaC_last: torch.Tensor = None,  # (B, NH, DHQK, DHHV)
+    vecDeltaN_last: torch.Tensor = None,  # (B, NH, DHQK)
+    scaDeltaM_last: torch.Tensor = None,  # (B, NH)
     ## Other arguments
     qk_scale: float = None,
     chunk_size: int = 128,
@@ -94,15 +96,70 @@ def mlstm_chunkwise_bw(
             num_warps=num_warps_inter,
         )
 
+    #! parallel backward: compute the deltaQ, deltaK, deltaV gradients
+    vecB, vecA = compute_chunkwise_log_gates_vecB_vecA(
+        chunk_size=kernel_chunk_params.chunk_size_intra, vecI=vecI, vecF=vecF
+    )
+    grad_output_dtype = matQ.dtype
+    #! compute deltaV
+    matDeltaV_intra, vecAux = mlstm_chunkwise__parallel_bw_dV(
+        matQ=matQ,
+        matK=matK,
+        matV=matV,
+        vecI=vecI,
+        vecB=vecB,
+        vecL_out=vecL_out,
+        vecM_out=vecM_out,
+        matDeltaH_out=matDeltaH_out,
+        qk_scale=qk_scale,
+        chunk_size=kernel_chunk_params.chunk_size_intra,
+        siz_b_LQ=kernel_chunk_params.siz_b_L_loop,
+        siz_b_LKV=kernel_chunk_params.siz_b_L_parallel,
+        siz_b_DHQK=siz_b_DH_loop,
+        siz_b_DHHV=siz_b_DH_parallel,
+        num_warps=num_warps_intra,
+        num_stages=num_stages_intra,
+        eps=eps,
+        output_dtype=grad_output_dtype,
+    )
+
+    #! compute deltaQ
+    matDeltaQ, vecAux = mlstm_chunkwise__parallel_bw_dQ(
+        matQ=matQ,
+        matK=matK,
+        matV=matV,
+        vecI=vecI,
+        vecB=vecB,
+        matCstate_all=matCstate_all,
+        vecNstate_all=vecNstate_all,
+        scaMstate_all=scaMstate_all,
+        vecL_out=vecL_out,
+        vecM_out=vecM_out,
+        vecAux=vecAux,
+        matDeltaH_out=matDeltaH_out,
+        qk_scale=qk_scale,
+        chunk_size=kernel_chunk_params.chunk_size_intra,
+        siz_b_LQ=kernel_chunk_params.siz_b_L_parallel,
+        siz_b_LKV=kernel_chunk_params.siz_b_L_loop,
+        siz_b_DHQK=siz_b_DH_parallel,
+        siz_b_DHHV=siz_b_DH_loop,
+        num_warps=num_warps_intra,
+        num_stages=num_stages_intra,
+        eps=eps,
+        output_dtype=grad_output_dtype,
+    )
+
     #! recurrent backward: compute the deltaC (& deltaN) gradients
     # matDeltaC_states (B, NH, (NC+1) * DHQK, DHHV)
-    matDeltaC_states = mlstm_chunkwise__recurrent_bw_dC(
+    matDeltaC_states, vecDeltaN_states = mlstm_chunkwise__recurrent_bw_dC(
         matQ=matQ,  # (B, NH, S, DHQK)
         vecF=vecF,  # (B, NH, S)
         scaM_inter=scaMstate_all,  # (B, NH, NCintra+1)
         vecM_combine=vecM_out,  # (B, NH, S)
         matDeltaH=matDeltaH_out,  # (B, NH, S, DHHV)
         vecL_out=vecL_out,  # (B, NH, S)
+        vecAux=vecAux,
+        vecDeltaN_last=vecDeltaN_last,  # (B, NH, DHQK)
         matDeltaC_last=matDeltaC_last,  # (B, NH, DHQK, DHHV)
         qk_scale=qk_scale,
         chunk_size=kernel_chunk_params.chunk_size_inter,
@@ -118,19 +175,14 @@ def mlstm_chunkwise_bw(
     )
     grad_output_dtype = matQ.dtype
     #! compute deltaV
-    matDeltaV = mlstm_chunkwise__parallel_bw_dV(
+    matDeltaV_inter = mlstm_chunkwise__recurrent_bw_dV(
         matQ=matQ,
         matK=matK,
         matV=matV,
-        vecI=vecI,
-        vecB=vecB,
         vecA=vecA,
         matCstate_all=matCstate_all,
         vecNstate_all=vecNstate_all,
         scaMstate_all=scaMstate_all,
-        vecL_out=vecL_out,
-        vecM_out=vecM_out,
-        matDeltaH_out=matDeltaH_out,
         matDeltaC_states=matDeltaC_states,
         qk_scale=qk_scale,
         chunk_size=kernel_chunk_params.chunk_size_intra,
@@ -147,18 +199,17 @@ def mlstm_chunkwise_bw(
     #! compute deltaK
     matDeltaK = mlstm_chunkwise__parallel_bw_dK(
         matQ=matQ,
-        matK=matK,
         matV=matV,
         vecI=vecI,
         vecB=vecB,
         vecA=vecA,
-        matCstate_all=matCstate_all,
-        vecNstate_all=vecNstate_all,
         scaMstate_all=scaMstate_all,
         vecL_out=vecL_out,
         vecM_out=vecM_out,
+        vecAux=vecAux,
         matDeltaH_out=matDeltaH_out,
         matDeltaC_states=matDeltaC_states,
+        vecDeltaN_states=vecDeltaN_states,
         qk_scale=qk_scale,
         chunk_size=kernel_chunk_params.chunk_size_intra,
         siz_b_LQ=kernel_chunk_params.siz_b_L_loop,
@@ -171,32 +222,7 @@ def mlstm_chunkwise_bw(
         output_dtype=grad_output_dtype,
     )
 
-    #! compute deltaQ
-    matDeltaQ = mlstm_chunkwise__parallel_bw_dQ(
-        matQ=matQ,
-        matK=matK,
-        matV=matV,
-        vecI=vecI,
-        vecB=vecB,
-        vecA=vecA,
-        matCstate_all=matCstate_all,
-        vecNstate_all=vecNstate_all,
-        scaMstate_all=scaMstate_all,
-        vecL_out=vecL_out,
-        vecM_out=vecM_out,
-        matDeltaH_out=matDeltaH_out,
-        matDeltaC_states=matDeltaC_states,
-        qk_scale=qk_scale,
-        chunk_size=kernel_chunk_params.chunk_size_intra,
-        siz_b_LQ=kernel_chunk_params.siz_b_L_parallel,
-        siz_b_LKV=kernel_chunk_params.siz_b_L_loop,
-        siz_b_DHQK=siz_b_DH_parallel,
-        siz_b_DHHV=siz_b_DH_loop,
-        num_warps=num_warps_intra,
-        num_stages=num_stages_intra,
-        eps=eps,
-        output_dtype=grad_output_dtype,
-    )
+    matDeltaV = matDeltaV_intra + matDeltaV_inter
 
     vecDeltaI, vecDeltaF = compute_gate_grads_vecDeltaI_vecDeltaF(
         matQ=matQ, matK=matK, matDeltaQ=matDeltaQ, matDeltaK=matDeltaK, vecF=vecF
@@ -209,7 +235,7 @@ def mlstm_chunkwise_bw(
     )
 
     vecDeltaN_initial = (
-        torch.zeros_like(vecN_initial) if vecN_initial is not None else None
+        vecDeltaN_states[:, :, :DHQK] if vecN_initial is not None else None
     )
     scaDeltaM_initial = (
         torch.zeros_like(scaM_initial) if scaM_initial is not None else None
