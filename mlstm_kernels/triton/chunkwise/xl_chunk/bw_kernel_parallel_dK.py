@@ -113,7 +113,7 @@ def mlstm_chunkwise__parallel_bw_dK_kernel(
     )
     vecDeltaN_val = tl.load(
         vecDeltaN_ptr, boundary_check=(0, )
-    ).to(DTYPE)
+    ).to(tl.float32)
 
     # for causal masking
     b_kv_offset_start = idx_b_LKV * siz_b_LKV
@@ -122,7 +122,7 @@ def mlstm_chunkwise__parallel_bw_dK_kernel(
 
     #! intra chunk contribution
     # init matDeltaK accumulator (siz_b_LKV, siz_b_DHQK)
-    matDeltaK_acc = tl.zeros([siz_b_LKV, siz_b_DHQK], dtype=tl.float32)
+    matDeltaK_acc = vecDeltaN_val[None, :] * vecAbar_val[:, None]
     ##? loop over siz_b_LQ blocks
     # compute only upper triangular part of the matrix
     idx_b_LQ_start = (idx_b_LKV * siz_b_LKV) // siz_b_LQ
@@ -181,10 +181,7 @@ def mlstm_chunkwise__parallel_bw_dK_kernel(
                 ).to(DTYPE)
 
                 # compute matDeltaKbar_inter (siz_b_LKV, siz_b_DHHV)
-                matDeltaKbar_inter_val = (
-                    tl.dot(matV_val, matDeltaC_trans_val)
-                    + vecDeltaN_val[None, :]
-                )
+                matDeltaKbar_inter_val = tl.dot(matV_val, matDeltaC_trans_val)
 
                 # compute matDeltaK_inter (siz_b_LKV, siz_b_DHHV)
                 matDeltaK_acc += matDeltaKbar_inter_val * vecAbar_val[:, None]
