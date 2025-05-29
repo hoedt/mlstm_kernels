@@ -55,6 +55,7 @@ def mlstm_chunkwise__recurrent_bw_dC(
         qk_scale = DHQK**-0.5
 
     USE_LAST_STATE = matDeltaC_last is not None
+    assert USE_LAST_STATE == vecDeltaN_last is not None, "matC and vecN must be both provided or both be None"
 
     num_chunks_saved = NC // save_states_every_nth_chunk
 
