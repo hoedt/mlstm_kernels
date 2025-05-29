@@ -205,9 +205,10 @@ def mlstm_chunkwise__parallel_fw_H(
         dim=-1, keepdim=True
     )  # (B, NH, NC, L, 1)
 
-    vecDenom_max_common = torch.maximum(
-        torch.abs(vecDenom_l_common), torch.exp(-vecM_k_combine)
-    )
+    #vecDenom_max_common = torch.maximum(
+    #    torch.abs(vecDenom_l_common), torch.exp(-vecM_k_combine)
+    #)
+    vecDenom_max_common = torch.abs(vecDenom_l_common)
 
     matH_k_chunk = matNumerator_common / (vecDenom_max_common + eps)
 

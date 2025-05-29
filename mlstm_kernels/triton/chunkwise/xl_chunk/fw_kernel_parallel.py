@@ -248,10 +248,11 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
 
     # compute the vecN_comb_denom (siz_b_LQ,)
     vecL_comb_denom_val = vecL_inter_acc + vecM_comb_ratio * vecL_intra_acc
-    vecN_comb_denom_val = tl.maximum(
-        tl.abs(vecL_comb_denom_val),
-        tl.exp(-vecM_combine_val),
-    )
+    #vecN_comb_denom_val = tl.maximum(
+    #    tl.abs(vecL_comb_denom_val),
+    #    tl.exp(-vecM_combine_val),
+    #)
+    vecN_comb_denom_val = tl.abs(vecL_comb_denom_val)
 
     # compute the matH_comb_out_val (siz_b_LQ, siz_b_DHHV)
     matH_comb_out_val = matH_comb_num_val / (vecN_comb_denom_val[:, None] + EPS)

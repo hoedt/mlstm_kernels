@@ -208,7 +208,8 @@ def mlstm_chunkwise__parallel_bw_dK_kernel(
                 + tl.arange(0, siz_b_LQ)
             )
             vecL_out_val = tl.load(vecL_out_ptr).to(tl.float32)
-            vecN_out_val = tl.maximum(tl.abs(vecL_out_val), tl.exp(-vecM_out_val))
+            #vecN_out_val = tl.maximum(tl.abs(vecL_out_val), tl.exp(-vecM_out_val))
+            vecN_out_val = tl.abs(vecL_out_val)
 
             # compute matDeltaH_intra_trans (siz_b_DHHV, siz_b_LQ)
             matDeltaH_trans_val = matDeltaH_trans_val / (vecN_out_val[None, :] + EPS)
