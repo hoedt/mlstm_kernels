@@ -448,7 +448,8 @@ def mlstm_parallel_bw_dKdV_kernel(
 
         vecM_chunk_Q = tl.load(vecM_chunk_Q_ptr)  # (BLOCK_Q,)
         vecL_chunk_Q = tl.load(vecL_chunk_Q_ptr)  # (BLOCK_Q,)
-        vecN_chunk_Q = tl.maximum(tl.abs(vecL_chunk_Q), tl.exp(-vecM_chunk_Q))
+        # vecN_chunk_Q = tl.maximum(tl.abs(vecL_chunk_Q), tl.exp(-vecM_chunk_Q))
+        vecN_chunk_Q = tl.abs(vecL_chunk_Q)
 
         # load vecAux_chunk
         vecAux_offsets = aux_batchhead_offset + stride_aux_s * (q_offset + tl.arange(0, BLOCK_Q))

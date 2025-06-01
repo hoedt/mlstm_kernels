@@ -244,7 +244,8 @@ def mlstm_parallel_fw_kernel(
         l_new = l_temp + tl.sum(matC, axis=1)
 
         # ? -- compute n_state --
-        n_new = tl.maximum(tl.abs(l_new), tl.exp(-m_new))
+        # n_new = tl.maximum(tl.abs(l_new), tl.exp(-m_new))
+        n_new = tl.abs(l_new)
 
         # ? -- compute h_out -- update h_out --
         # compute weighting factor
