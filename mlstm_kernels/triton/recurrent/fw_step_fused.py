@@ -188,7 +188,8 @@ def recurrent_step_fw_kernel(
         qn_dotproduct += tl.sum(vecQ_val * vecN_new_val.to(dtype=DTYPE))
 
     # we compute h in float32 and then cast to DTYPE
-    h_denom = tl.maximum(tl.abs(qn_dotproduct), max_val) + EPS
+    # h_denom = tl.maximum(tl.abs(qn_dotproduct), max_val) + EPS
+    h_denom = tl.abs(qn_dotproduct) + EPS
     h = tl.fdiv(h_num, h_denom)
 
     # ? Store data

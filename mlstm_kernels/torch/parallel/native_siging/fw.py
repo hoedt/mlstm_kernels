@@ -58,11 +58,12 @@ def mlstm_siging_parallel_fw(
 
     matCtilde = matS * matD  # (B, NH, S, S)
     if normalize:
-        vecN = torch.maximum(
-            matCtilde.sum(dim=-1, keepdim=True).abs(),
-            torch.tensor([1.0], dtype=_dtype, device=_device),
-        )  # (B, NH, S, 1)
-        # (B, NH, S, S)
+        # vecN = torch.maximum(
+        #     matCtilde.sum(dim=-1, keepdim=True).abs(),
+        #     torch.tensor([1.0], dtype=_dtype, device=_device),
+        # )  # (B, NH, S, 1)
+        # # (B, NH, S, S)
+        vecN = matCtilde.sum(dim=-1, keepdim=True).abs()
         matC = matCtilde / (vecN + eps)
         vecN = vecN.squeeze(-1)
     else:

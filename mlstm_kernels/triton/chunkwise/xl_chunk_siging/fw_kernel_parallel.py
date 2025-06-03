@@ -211,11 +211,12 @@ def mlstm_siging_chunkwise__parallel_fw_Hintra_kernel(
     matH_comb_num_val = matH_inter_acc + matH_intra_acc
 
     if NORMALIZE:
-        # compute the vecN_comb_denom (siz_b_LQ,)
-        vecN_comb_denom_val = tl.maximum(
-            tl.abs(vecN_inter_acc + vecN_intra_acc),
-            1.0,
-        )
+        # # compute the vecN_comb_denom (siz_b_LQ,)
+        # vecN_comb_denom_val = tl.maximum(
+        #     tl.abs(vecN_inter_acc + vecN_intra_acc),
+        #     1.0,
+        # )
+        vecN_comb_denom_val = tl.abs(vecN_inter_acc + vecN_intra_acc)
         # compute the matH_comb_out_val (siz_b_LQ, siz_b_DHHV)
         matH_comb_out_val = matH_comb_num_val / (vecN_comb_denom_val[:, None] + EPS)
     else:

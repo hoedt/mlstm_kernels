@@ -88,10 +88,11 @@ def mlstm_recurrent_step__native_fw(
         dtype=dtype_qkv
     )  # (B, NH, 1, 1)
     qn_dotproduct = qn_dotproduct.squeeze(2)  # (B, NH, 1)
-    max_val = torch.exp(-scaM_state_new)  # (B, NH, 1)
-    h_denom = (torch.maximum(qn_dotproduct.abs(), max_val) + eps).to(
-        dtype=dtype_state
-    )  # (B, NH, 1)
+    # max_val = torch.exp(-scaM_state_new)  # (B, NH, 1)
+    # h_denom = (torch.maximum(qn_dotproduct.abs(), max_val) + eps).to(
+    #     dtype=dtype_state
+    # )  # (B, NH, 1)
+    h_denom = (qn_dotproduct.abs() + eps).to(dtype=dtype_state)  # (B, NH, 1)
     h = h_num / h_denom  # (B, NH, DHV) / (B, NH, 1) = (B, NH, DHV)
 
     h = h.to(dtype=dtype_qkv)

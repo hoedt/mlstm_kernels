@@ -202,9 +202,10 @@ def mlstm_chunkwise__parallel_fw_H_kernel(
 
     # compute H_k_denom (L,)
     vecL_denom_val = vecH_inter_denom_val + vecH_intra_denom_val
-    vecH_denom_val = tl.maximum(
-        tl.abs(vecL_denom_val), tl.exp(-vecM_combine_val)
-    )
+    # vecH_denom_val = tl.maximum(
+    #     tl.abs(vecL_denom_val), tl.exp(-vecM_combine_val)
+    # )
+    vecH_denom_val = tl.abs(vecL_denom_val)
 
     # compute matH_k_out (L, siz_b_DHHV)
     matHout_val = matH_num_val / (vecH_denom_val[:, None] + EPS)

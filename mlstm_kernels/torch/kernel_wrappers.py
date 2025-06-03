@@ -125,7 +125,7 @@ def wrap_chunkwise__arbitrary_sequence_length(
             LOGGER.debug(
                 f"Mid OR Final: compute last state for seq[{seq_len_start_idx}:{seq_len_idx}], NC={num_chunks}, chunk_size={chunk_size_iter}"
             ) if enable_logging else None
-            h_out, (c_state, n_state, m_state) = mlstm_chunkwise_kernel(
+            h_out, rnn_state = mlstm_chunkwise_kernel(
                 q=q[..., seq_len_start_idx:seq_len_idx, :].contiguous(),
                 k=k[..., seq_len_start_idx:seq_len_idx, :].contiguous(),
                 v=v[..., seq_len_start_idx:seq_len_idx, :].contiguous(),
@@ -146,6 +146,10 @@ def wrap_chunkwise__arbitrary_sequence_length(
                     f"Finished processing sequence length in chunks, seq_len_start_idx={seq_len_start_idx}, S={S}"
                 ) if enable_logging else None
                 break
+            if rnn_state is not None:
+                c_state = rnn_state[0]
+                n_state = rnn_state[1]
+                m_state = rnn_state[2] if len(rnn_state) > 2 else None
 
         remaining_seq_len = S - seq_len_start_idx
 
@@ -153,7 +157,7 @@ def wrap_chunkwise__arbitrary_sequence_length(
             LOGGER.debug(
                 f"Final: Recurrent step mode: compute last state for seq[{seq_len_start_idx}:{S}], remaining_seq_len={remaining_seq_len}"
             ) if enable_logging else None
-            h_out, (c_state, n_state, m_state) = mlstm_sequence_kernel(
+            h_out, rnn_state = mlstm_sequence_kernel(
                 q=q[..., seq_len_start_idx:S, :].contiguous(),
                 k=k[..., seq_len_start_idx:S, :].contiguous(),
                 v=v[..., seq_len_start_idx:S, :].contiguous(),
@@ -181,7 +185,7 @@ def wrap_chunkwise__arbitrary_sequence_length(
         # The step function does not want a sequence dimension
         # qkv shape is (B, NH, DHQK/DHV)
         # i, f shape is (B, NH, 1)
-        h_out, (c_state, n_state, m_state) = mlstm_step_kernel(
+        h_out, rnn_state = mlstm_step_kernel(
             q=q.squeeze(2),
             k=k.squeeze(2),
             v=v.squeeze(2),
@@ -195,7 +199,7 @@ def wrap_chunkwise__arbitrary_sequence_length(
         h_out = h_out[:, :, None, :]
 
     if return_last_states:
-        return h_out, (c_state, n_state, m_state)
+        return h_out, rnn_state
     else:
         return h_out
 

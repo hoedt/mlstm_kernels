@@ -278,8 +278,9 @@ def recurrent_step_fw_kernel_H(
         qn_dotproduct += tl.sum(vecQ_val * vecN_new_val)
         matC_new_bptr = tl.advance(matC_new_bptr, (BLOCK_DQK, 0))
 
-    max_val = tl.exp(-scaM_new_val.to(tl.float32)).to(scaM_new.type.element_ty)
-    h_denom = tl.maximum(tl.abs(qn_dotproduct), max_val) + EPS
+    # max_val = tl.exp(-scaM_new_val.to(tl.float32)).to(scaM_new.type.element_ty)
+    # h_denom = tl.maximum(tl.abs(qn_dotproduct), max_val) + EPS
+    h_denom = tl.abs(qn_dotproduct) + EPS
     h = tl.fdiv(h_num, h_denom)
 
     # ? Store data
