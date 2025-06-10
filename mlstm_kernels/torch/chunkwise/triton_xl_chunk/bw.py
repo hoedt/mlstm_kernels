@@ -105,9 +105,9 @@ def mlstm_chunkwise_bw(
         vecN_out=vecN_out,  # (B, NH, S)
         matDeltaC_last=matDeltaC_last,  # (B, NH, DHQK, DHHV)
         qk_scale=qk_scale,
-        chunk_size=kernel_chunk_params.chunk_size_inter,
+        chunk_size=kernel_chunk_params.chunk_size_intra,
         eps=eps,
-        save_states_every_nth_chunk=kernel_chunk_params.save_states_every_nth_chunk,
+        save_states_every_nth_chunk=1,
         num_stages=num_stages_inter,
         num_warps=num_warps_inter,
     )
