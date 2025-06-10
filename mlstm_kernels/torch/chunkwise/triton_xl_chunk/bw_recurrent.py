@@ -94,7 +94,6 @@ def mlstm_chunkwise__recurrent_bw_dC(
         L=L,
         siz_b_DHQK=siz_b_DHQK,
         siz_b_DHHV=siz_b_DHHV,
-        save_states_every_nth_chunk=1,
         USE_LAST_STATE=USE_LAST_STATE,
         DTYPE=torch2triton_dtype(_dtype),
         EPS=eps,
