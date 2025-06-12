@@ -44,16 +44,14 @@ def _mlstm_recurrent_sequence_loop_fw(
 
     if matC_initial is not None:
         assert (
-            vecN_initial is not None and scaM_initial is not None
+            vecN_initial is not None
         ), "Initial states must be provided together."
-        assert (
-            vecN_initial is not None and scaM_initial is not None
-        ), "Initial states must be provided together."
-        matC_state, vecN_state, vecM_state = (
-            matC_initial.to(dtype=dtype_state),
-            vecN_initial.to(dtype=dtype_state),
-            scaM_initial.to(dtype=dtype_state),
-        )
+        matC_state, vecN_state = matC_initial.to(dtype=dtype_state), vecN_initial.to(dtype=dtype_state)
+        if scaM_initial is None: 
+            # chunkwise siging kernels do not return mstate - make dummy state
+            vecM_state = torch.zeros((B, NH, 1), dtype=dtype_state, device=device)
+        else: 
+            vecM_state = scaM_initial.to(dtype=dtype_state)
     else:
         # memory state
         matC_state = torch.zeros((B, NH, DHQK, DHV), dtype=dtype_state, device=device)
