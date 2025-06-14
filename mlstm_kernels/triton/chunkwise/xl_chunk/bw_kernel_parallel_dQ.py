@@ -254,7 +254,7 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
             #    1 / vecL_out_val,
             #    0
             #)[:, None]
-            vecAux_acc *= (1 / vecL_out_val)[:, None]
+            vecAux_acc *= (1 / (vecL_out_val + EPS))[:, None]
 
         matDeltaQ_acc -= qk_scale * vecBbar_val[:, None] * vecAux_acc * vecN_val[None, :]
 
