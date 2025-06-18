@@ -242,14 +242,14 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
             matV_trans_val = tl.load(matV_trans_ptr, boundary_check=(0, 1)).to(DTYPE)
 
             ### compute matDeltaSbar (siz_b_LQ, siz_b_LKV)
-            matDeltaSbar_acc += tl.dot(matDeltaH_val, matV_trans_val)
+            matDeltaSbar_acc += tl.dot(matDeltaH_val, matV_trans_val, input_precision="ieee")
 
             ###? end siz_b_DHQK loop
 
         if idx_b_LKV == 0:
             vecAux_acc *= tl.where(
                 tl.abs(vecL_out_val) > tl.exp(-vecM_out_val),
-                1 / vecL_out_val,
+                1 / (vecL_out_val + tl.where(vecL_out_val < 0, -EPS, EPS)),
                 0
             )[:, None]
 

@@ -191,7 +191,7 @@ def _mlstm_chunkwise__parallel_bw_dQKV(
     matNumerator_common = matSbar @ matV + matQ_chunk_gated @ matC_k_states
 
     aux = torch.sum(matDeltaH * matNumerator_common, dim=-1, keepdim=True) * (
-        (torch.exp(-vecM_combine) < vecN_out) * (1 / vecL_out)
+        (torch.exp(-vecM_combine) < vecN_out) * (1 / (vecL_out + torch.where(vecL_out < 0, -eps, eps)))
     )[..., None]
     matDeltaS = (matDeltaSbar - aux) * matDbar
 
