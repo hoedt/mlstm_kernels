@@ -181,7 +181,7 @@ def mlstm_chunkwise__parallel_fw_H(
 
     # max_state combined
     vecM_b_inter = vecB + scaMinter_k_states[:, :, :, None]  # (B, NH, NC, L)
-    vecM_k_combine = torch.maximum(vecM_b_inter, vecMintra_k)  # (B, NH, NC, L)
+    vecM_k_combine = torch.maximum(vecM_b_inter, vecMintra_k).detach()  # (B, NH, NC, L)
 
     vecM_k_combine = vecM_k_combine[:, :, :, :, None]  # (B, NH, NC, L, 1)
     vecM_b_inter = vecM_b_inter[:, :, :, :, None]  # (B, NH, NC, L, 1)
