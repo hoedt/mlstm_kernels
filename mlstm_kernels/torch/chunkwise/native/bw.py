@@ -74,7 +74,6 @@ def mlstm_chunkwise__recurrent_bw_dC(
         vecDeltaN_k = torch.zeros((B, NH, DHQK), dtype=_dtype, device=_device)
 
     scaG = vecB[..., -1]  # (B, NH, NC)
-    vecN_out = torch.abs(vecL_out)
 
     for k in range(NC, 0, -1):  # goes until 1
         # store the matDeltaC_k from the previous iteration
@@ -97,10 +96,10 @@ def mlstm_chunkwise__recurrent_bw_dC(
         matQ_k = matQ[:, :, (k - 1) * L : k * L, :]  # (B, NH, L, DHQK)
         matQbar_k = matQ_k * vecBbar_k * qk_scale
 
-        vecN_k = vecN_out[:, :, (k - 1) * L : k * L, None]  # (B, NH, L, 1)
+        vecL_k = vecL_out[:, :, (k - 1) * L : k * L, None]  # (B, NH, L, 1)
         aux_k = aux[:, :, (k - 1) * L : k * L, :]
         matDeltaH_k = matDeltaH[:, :, (k - 1) * L : k * L, :] / (
-            vecN_k + eps
+            vecL_k + eps
         )  # (B, NH, L, DHV)
 
         # matDeltaC_k-1 update
@@ -160,8 +159,7 @@ def _mlstm_chunkwise__parallel_bw_dQKV(
     vecM_combine = rearrange(vecM_combine, "b nh (nc l) -> b nh nc l", l=L)
     vecL_out = rearrange(vecL_out, "b nh (nc l) -> b nh nc l", l=L)
 
-    vecN_out = torch.abs(vecL_out)
-    matDeltaH = matDeltaH / (vecN_out[..., None] + eps)
+    matDeltaH = matDeltaH / (vecL_out[..., None] + eps)
 
     ltr = torch.tril(
         torch.ones(
@@ -191,7 +189,7 @@ def _mlstm_chunkwise__parallel_bw_dQKV(
     matNumerator_common = matSbar @ matV + matQ_chunk_gated @ matC_k_states
 
     aux = torch.sum(matDeltaH * matNumerator_common, dim=-1, keepdim=True) * (
-        1 / (vecL_out + torch.where(vecL_out < 0, -eps, eps))
+        1 / (vecL_out + eps)
     )[..., None]
     matDeltaS = (matDeltaSbar - aux) * matDbar
 
@@ -235,8 +233,7 @@ def _mlstm_chunkwise__recurrent_bw_dQKV(
 
     #! intra chunk gradients
     # load / prepare the inputs
-    vecN_out = torch.abs(vecL_out)
-    matDeltaH = matDeltaH / (vecN_out[:, :, :, None] + eps)
+    matDeltaH = matDeltaH / (vecL_out[:, :, :, None] + eps)
 
     matDeltaH = rearrange(matDeltaH, "b nh (nc l) dh -> b nh nc l dh", l=L)
 

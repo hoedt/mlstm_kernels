@@ -213,9 +213,8 @@ def mlstm_chunkwise__parallel_bw_dK_kernel(
             + tl.arange(0, siz_b_LQ)
         )
         vecL_out_val = tl.load(vecL_out_ptr).to(tl.float32)
-        vecN_out_val = tl.abs(vecL_out_val)
 
-        matDeltaSbar_trans_acc /= (vecN_out_val[None, :] + EPS)
+        matDeltaSbar_trans_acc /= (vecL_out_val[None, :] + EPS)
 
         ### compute matD tile (siz_b_LQ, siz_b_LKV) -> matD^T (siz_b_LKV, siz_b_LQ)
         # load vecB_LQ (siz_b_LQ,)

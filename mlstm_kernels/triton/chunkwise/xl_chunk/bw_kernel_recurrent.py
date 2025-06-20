@@ -191,12 +191,11 @@ def mlstm_chunkwise__recurrent_bw_dC_kernel(
         vecL_out_k_val = tl.load(
             vecL_out + idx_b_NH * str_vecL_out_B_NH + (k - 1) * L + tl.arange(0, L)
         ).to(tl.float32)  # (L,)
-        vecN_out_k_val = tl.abs(vecL_out_k_val)
         matDeltaH_k_val = tl.load(matDeltaH_ptr, boundary_check=(0, 1)).to(
             tl.float32
         )  # (L, DHHV)
         # compute matDeltaHinter_k
-        matDeltaH_k_val = (matDeltaH_k_val / (vecN_out_k_val[:, None] + EPS)).to(DTYPE)
+        matDeltaH_k_val = (matDeltaH_k_val / (vecL_out_k_val[:, None] + EPS)).to(DTYPE)
 
         # compute matDeltaC_km1
         matDeltaC_k_val = scaGbar_k_val * matDeltaC_k_val + tl.dot(

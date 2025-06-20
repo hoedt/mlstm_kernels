@@ -108,7 +108,6 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
         + tl.arange(0, siz_b_LQ)
     )
     vecM_out_val = tl.load(vecM_out_ptr).to(tl.float32)
-    vecN_out_val = tl.abs(vecL_out_val)
     # compute vecBbar (siz_b_LQ,)
     vecBbar_val = tl.exp(vecB_LQ_val + scaMinter_km1_val - vecM_out_val)
     # ? end compute vecBbar
@@ -197,7 +196,7 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
                     num_common_rec += tl.dot(matQbar_val, matC_val)
 
                 vecAux_acc += tl.sum(
-                    num_common_rec * matDeltaH_val / (vecN_out_val[:, None] + EPS),
+                    num_common_rec * matDeltaH_val / (vecL_out_val[:, None] + EPS),
                     axis=1, keep_dims=True
                 )
 
@@ -247,7 +246,7 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
             ###? end siz_b_DHQK loop
 
         if idx_b_LKV == 0:
-            vecAux_acc *= 1 / (vecL_out_val + tl.where(vecL_out_val < 0, -EPS, EPS))[:, None]
+            vecAux_acc /= (vecL_out_val + EPS)[:, None]
 
         matDeltaQ_acc -= qk_scale * vecBbar_val[:, None] * vecAux_acc * vecN_val[None, :]
 
@@ -281,7 +280,7 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
         # Actually we would compute matDeltaH / vecN_out_val first and then multiply
         # We do this here to avoid the division in the inner loop, for better performance
         # It should not cause too much numerical deviations
-        matDeltaSbar_acc = matDeltaSbar_acc / (vecN_out_val[:, None] + EPS)
+        matDeltaSbar_acc = matDeltaSbar_acc / (vecL_out_val[:, None] + EPS)
 
         # compute matDeltaS (siz_b_LQ, siz_b_LKV)
         matDeltaS_val = (matDeltaSbar_acc - vecAux_acc) * qk_scale * matD_val
