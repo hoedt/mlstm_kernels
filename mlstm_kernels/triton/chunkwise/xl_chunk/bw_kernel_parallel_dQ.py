@@ -108,7 +108,7 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
         + tl.arange(0, siz_b_LQ)
     )
     vecM_out_val = tl.load(vecM_out_ptr).to(tl.float32)
-    vecN_out_val = tl.maximum(tl.abs(vecL_out_val), tl.exp(-vecM_out_val))
+    vecN_out_val = tl.abs(vecL_out_val)
     # compute vecBbar (siz_b_LQ,)
     vecBbar_val = tl.exp(vecB_LQ_val + scaMinter_km1_val - vecM_out_val)
     # ? end compute vecBbar
@@ -247,11 +247,7 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
             ###? end siz_b_DHQK loop
 
         if idx_b_LKV == 0:
-            vecAux_acc *= tl.where(
-                tl.abs(vecL_out_val) > tl.exp(-vecM_out_val),
-                1 / (vecL_out_val + tl.where(vecL_out_val < 0, -EPS, EPS)),
-                0
-            )[:, None]
+            vecAux_acc *= 1 / (vecL_out_val + tl.where(vecL_out_val < 0, -EPS, EPS))[:, None]
 
         matDeltaQ_acc -= qk_scale * vecBbar_val[:, None] * vecAux_acc * vecN_val[None, :]
 
