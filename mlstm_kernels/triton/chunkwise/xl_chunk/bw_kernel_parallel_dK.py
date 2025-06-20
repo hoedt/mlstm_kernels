@@ -199,24 +199,23 @@ def mlstm_chunkwise__parallel_bw_dK_kernel(
                 matDeltaH_trans_ptr, boundary_check=(0, 1)
             ).to(tl.float32)
 
-            # load vecN_out (siz_b_LQ,)
-            vecL_out_ptr = (
-                vecL_out
-                + idx_b_BNH * str_vecML_B_NH
-                + idx_b_NC * L
-                + idx_b_LQ * siz_b_LQ
-                + tl.arange(0, siz_b_LQ)
-            )
-            vecL_out_val = tl.load(vecL_out_ptr).to(tl.float32)
-            vecN_out_val = tl.maximum(tl.abs(vecL_out_val), tl.exp(-vecM_out_val))
-
-            # compute matDeltaH_intra_trans (siz_b_DHHV, siz_b_LQ)
-            matDeltaH_trans_val = matDeltaH_trans_val / (vecN_out_val[None, :] + EPS)
-
             ### compute matDeltaSbar^T (siz_b_LKV, siz_b_LQ)
             matDeltaSbar_trans_acc += tl.dot(matV_val, matDeltaH_trans_val.to(DTYPE))
 
             ###? end siz_b_DHQK loop
+
+        # load vecN_out (siz_b_LQ,)
+        vecL_out_ptr = (
+            vecL_out
+            + idx_b_BNH * str_vecML_B_NH
+            + idx_b_NC * L
+            + idx_b_LQ * siz_b_LQ
+            + tl.arange(0, siz_b_LQ)
+        )
+        vecL_out_val = tl.load(vecL_out_ptr).to(tl.float32)
+        vecN_out_val = tl.maximum(tl.abs(vecL_out_val), tl.exp(-vecM_out_val))
+
+        matDeltaSbar_trans_acc /= (vecN_out_val[None, :] + EPS)
 
         ### compute matD tile (siz_b_LQ, siz_b_LKV) -> matD^T (siz_b_LKV, siz_b_LQ)
         # load vecB_LQ (siz_b_LQ,)
