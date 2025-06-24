@@ -257,7 +257,11 @@ def mlstm_parallel_bw_dQ_kernel(
         # ? END LOOP1
 
     # epilogue
-    vecAux_tile *= tl.where(tl.abs(vecL_chunk_Q) > tl.exp(-vecM_chunk_Q), 1 / vecL_chunk_Q, 0)[:, None]
+    vecAux_tile *= tl.where(
+        tl.abs(vecL_chunk_Q) > tl.exp(-vecM_chunk_Q),
+        1 / (vecL_chunk_Q + tl.where(vecL_chunk_Q < 0, -EPS, EPS)),
+        0
+    )[:, None]
     matDeltaQ_tile -= vecAux_tile * matTmp_tile
     tl.store(matDeltaQ_block_ptr, matDeltaQ_tile.to(matDeltaQ.type.element_ty))
     tl.store(vecAux_block_ptr, vecAux_tile.to(vecAux.type.element_ty))

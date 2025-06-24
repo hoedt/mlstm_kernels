@@ -51,7 +51,9 @@ def mlstm_parallel_bw(
     matS = (matQ @ matK.transpose(-2, -1)) * (DHQK**-0.5)
 
     matDeltaDtilde = matDeltaC * matD * matS
-    aux = torch.sum(matDeltaDtilde, dim=-1, keepdim=True) * ((torch.exp(-vecM) < vecN) * (1 / vecL))[..., None]
+    aux = torch.sum(matDeltaDtilde, dim=-1, keepdim=True) * ((torch.exp(-vecM) < vecN) * (
+        1 / (vecL + torch.where(vecL < 0, -eps, eps))
+    ))[..., None]
 
     # output delta-errors / gradients
     matP = (matDeltaC - aux) * matD
