@@ -224,7 +224,11 @@ def mlstm_chunkwise__parallel_bw_dQKV_kernel(
             * matNumerator_common_val, axis=1, keep_dims=True
         )
 
-    vecAux_acc *= tl.where(tl.exp(-vecM_combine_val) < vecN_out_val, 1 / vecL_out_val, 0)[:, None]
+    vecAux_acc *= tl.where(
+        tl.exp(-vecM_combine_val) < vecN_out_val,
+        1 / (vecL_out_val + tl.where(vecL_out_val < 0, -EPS, EPS)),
+        0
+    )[:, None]
     matDeltaS_val = ((matDeltaSbar_val - vecAux_acc) * matDbar_val).to(DTYPE)
 
     # [intra] matDeltaK = matDeltaS.transpose() @ matQ * qk_scale
@@ -272,7 +276,6 @@ def mlstm_chunkwise__parallel_bw_dQKV_kernel(
         vecAux_acc.to(vecAux.type.element_ty),
         boundary_check=(0, )
     )
-
 
 
 @triton.jit
