@@ -218,7 +218,7 @@ def mlstm_chunkwise__parallel_bw_dQ_kernel(
 
                 # compute matDeltaQbar_inter (siz_b_LQ, siz_b_DHQK)
                 matDeltaQbar_inter_val = tl.dot(matDeltaH_val, matC_trans_val) / (
-                    vecN_out_val[:, None] + EPS
+                    vecL_out_val[:, None] + EPS
                 )
 
                 # compute matDeltaQ_inter (siz_b_LQ, siz_b_DHQK)
