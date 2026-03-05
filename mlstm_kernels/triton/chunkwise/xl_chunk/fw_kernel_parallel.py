@@ -38,8 +38,7 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
     str_vecNstates_NCDHQK: tl.constexpr,
     str_scaMinterstates_B_NH: tl.constexpr,
     str_vecBI_B_NH: tl.constexpr,
-    str_vecBI_NC: tl.constexpr,
-    str_vecBI_L: tl.constexpr,
+    str_vecBI_S: tl.constexpr,
     str_vecMN_B_NH: tl.constexpr,
     str_vecMN_S: tl.constexpr,
     B: tl.constexpr,
@@ -66,22 +65,27 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
     )
     idx_b_NC = idx_b_NC_BNH % NC
     idx_b_BNH = idx_b_NC_BNH // NC
+    idx_b_S, end_b_S = 0, S
 
     # inititalize  vecM states
     vecM_old_val = tl.zeros([siz_b_LQ], dtype=tl.float32) - float("inf")
     vecM_new_val = tl.zeros([siz_b_LQ], dtype=tl.float32) - float("inf")
 
     # gate pointers for the current thread block
-    vecB_ptr = vecB + idx_b_BNH * str_vecBI_B_NH + idx_b_NC * str_vecBI_NC
-    vecI_ptr = vecI + idx_b_BNH * str_vecBI_B_NH + idx_b_NC * str_vecBI_NC
+    vecB_ptr = vecB + idx_b_BNH * str_vecBI_B_NH + idx_b_NC * L * str_vecBI_S
+    vecI_ptr = vecI + idx_b_BNH * str_vecBI_B_NH + idx_b_NC * L * str_vecBI_S
 
     # load vecB_LQ (siz_b_LQ,)
-    vecB_LQ_ptr = vecB_ptr + idx_b_LQ * siz_b_LQ + tl.arange(0, siz_b_LQ)
-    vecB_LQ_val = tl.load(vecB_LQ_ptr).to(tl.float32)
+    idx_LQ = tl.arange(0, siz_b_LQ)
+    mask_LQ = (idx_b_NC * NC + idx_b_LQ * siz_b_LQ + idx_LQ < end_b_S)
+    vecB_LQ_val = tl.load(
+        vecB_ptr + idx_b_LQ * siz_b_LQ + idx_LQ,
+        mask=mask_LQ,
+    ).to(tl.float32)
 
     # for causal masking
     b_q_offset = idx_b_LQ * siz_b_LQ
-    b_q_idxes = b_q_offset + tl.arange(0, siz_b_LQ)
+    b_q_idxes = b_q_offset + idx_LQ
 
     # ? compute the intra chunk contribution
     # loop over b_LKV blocks
@@ -107,7 +111,7 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
                 block_shape=(siz_b_LQ, siz_b_DHQK),
                 order=(1, 0),
             )
-            matQ_val = tl.load(matQ_ptr, boundary_check=(0, 1)).to(DTYPE)
+            matQ_val = tl.load(matQ_ptr, boundary_check=(0, 1), padding_option="zero").to(DTYPE)
             # load matK transposed block (siz_b_DHQK, siz_b_LKV)
             matK_ptr = tl.make_block_ptr(
                 base=matK + idx_b_BNH * str_matQK_B_NH,
@@ -117,18 +121,24 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
                 block_shape=(siz_b_DHQK, siz_b_LKV),
                 order=(0, 1),
             )
-            matK_val = tl.load(matK_ptr, boundary_check=(0, 1)).to(DTYPE)
+            matK_val = tl.load(matK_ptr, boundary_check=(0, 1), padding_option="zero").to(DTYPE)
 
             # accumulate in matG (siz_b_LQ, siz_b_LKV)
             matG += tl.dot(matQ_val, matK_val)
 
         # load vecB_LKV (siz_B_LKV,)
-        vecB_LKV_ptr = vecB_ptr + idx_b_LKV * siz_b_LKV + tl.arange(0, siz_b_LKV)
-        vecB_LKV = tl.load(vecB_LKV_ptr).to(tl.float32)
+        idx_LKV = tl.arange(0, siz_b_LKV)
+        mask_LKV = idx_b_NC * L * str_vecBI_S + idx_b_LKV * siz_b_LKV + idx_LKV < end_b_S
+        vecB_LKV = tl.load(
+            vecB_ptr + idx_b_LKV * siz_b_LKV + idx_LKV,
+            mask=mask_LKV,
+        ).to(tl.float32)
 
         # load vecI_LKV (siz_B_LKV,)
-        vecI_LKV_ptr = vecI_ptr + idx_b_LKV * siz_b_LKV + tl.arange(0, siz_b_LKV)
-        vecI_LKV = tl.load(vecI_LKV_ptr).to(tl.float32)
+        vecI_LKV = tl.load(
+            vecI_ptr + idx_b_LKV * siz_b_LKV + idx_LKV,
+            mask=mask_LKV,
+        ).to(tl.float32)
 
         # construct gate matrix matDtilde (siz_b_LQ, siz_b_LKV)
         matDtilde_val = vecB_LQ_val[:, None] - vecB_LKV[None, :] + vecI_LKV[None, :]
@@ -136,8 +146,8 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
         b_kv_offset = idx_b_LKV * siz_b_LKV
         # causal masking if on the diagonal
         if b_kv_offset >= b_q_offset:
-            b_kv_idxes = b_kv_offset + tl.arange(0, siz_b_LKV)
-            mask = b_q_idxes[:, None] >= b_kv_idxes[None, :]
+            b_kv_idxes = b_kv_offset + idx_LKV
+            mask = (b_q_idxes[:, None] >= b_kv_idxes[None, :]) & mask_LKV[None, :] & mask_LQ[:, None]
             matDtilde_val = tl.where(mask, matDtilde_val, -float("inf"))
 
         # compute vecM_new (siz_b_LQ,)
@@ -169,7 +179,7 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
             block_shape=(siz_b_LKV, siz_b_DHHV),
             order=(1, 0),
         )
-        matV_val = tl.load(matV_ptr, boundary_check=(0, 1)).to(DTYPE)
+        matV_val = tl.load(matV_ptr, boundary_check=(0, 1), padding_option="zero").to(DTYPE)
 
         # accumulate matH (siz_b_LQ, siz_b_DHHV)
         matH_cur = tl.dot(matS.to(DTYPE), matV_val)
@@ -223,11 +233,11 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
         )
 
         # load matQ block (siz_b_LQ, siz_b_DHQK)
-        matQ_val = tl.load(matQ_ptr, boundary_check=(0, 1)).to(tl.float32)
+        matQ_val = tl.load(matQ_ptr, boundary_check=(0, 1), padding_option="zero").to(tl.float32)
         matQbar_val = (matQ_val * vecBbar_val[:, None] * qk_scale).to(DTYPE)
 
         # load matC_km1 (siz_b_DHQK, siz_b_DHHV)
-        matC_km1_val = tl.load(matC_km1_ptr, boundary_check=(0, 1)).to(DTYPE)
+        matC_km1_val = tl.load(matC_km1_ptr, boundary_check=(0, 1), padding_option="zero").to(DTYPE)
 
         # acccumulate matH_inter (siz_b_LQ, siz_b_DHHV)
         matH_inter_acc += tl.dot(matQbar_val, matC_km1_val)

@@ -43,10 +43,7 @@ def mlstm_chunkwise__parallel_fw_Hintra(
     B, NH, S, DHQK = matK.shape
     DHHV = matV.shape[-1]
 
-    assert (
-        S % chunk_size == 0
-    ), f"Sequence length {S} must be divisible by chunk size {chunk_size}"
-    NC = S // chunk_size
+    NC = triton.cdiv(S, chunk_size)
     L = chunk_size
 
     assert is_power_of_2(L), "Chunk size must be a power of 2."
@@ -110,8 +107,7 @@ def mlstm_chunkwise__parallel_fw_Hintra(
         str_vecNstates_NCDHQK=vecN_states.stride(2),
         str_scaMinterstates_B_NH=scaMinter_states.stride(1),
         str_vecBI_B_NH=vecB.stride(1),
-        str_vecBI_NC=vecB.stride(2),
-        str_vecBI_L=vecB.stride(3),
+        str_vecBI_S=vecB.stride(2),
         str_vecMN_B_NH=vecN_out.stride(1),
         str_vecMN_S=vecN_out.stride(2),
         B=B,
