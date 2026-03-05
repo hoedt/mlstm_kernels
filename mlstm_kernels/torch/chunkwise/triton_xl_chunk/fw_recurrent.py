@@ -29,8 +29,7 @@ def mlstm_chunkwise__recurrent_fw_C(
     DHHV = matV.shape[-1]
 
     L = chunk_size
-    assert S % L == 0, "Sequence length must be divisible by chunk size."
-    NC = S // L
+    NC = triton.cdiv(S, L)
 
     assert (
         save_states_every_nth_chunk > 0
@@ -72,7 +71,7 @@ def mlstm_chunkwise__recurrent_fw_C(
         str_vecNinitial_DHQK = 0
         str_scaMinterinitial_B_NH = 0
 
-    num_chunks_saved = NC // save_states_every_nth_chunk
+    num_chunks_saved = triton.cdiv(NC, save_states_every_nth_chunk)
 
     matC_states = torch.empty(
         B,
