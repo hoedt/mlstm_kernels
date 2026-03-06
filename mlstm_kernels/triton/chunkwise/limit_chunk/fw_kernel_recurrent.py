@@ -48,8 +48,7 @@ def mlstm_chunkwise__recurrent_fw_C_kernel(
     str_matV_S,
     str_matV_DHHV,
     str_vecBI_B_NH,
-    str_vecBI_NC,
-    str_vecBI_L,
+    str_vecBI_S,
     str_matCstates_B_NH,
     str_matCstates_NCDHQK,
     str_matCstates_DHHV,
@@ -80,6 +79,7 @@ def mlstm_chunkwise__recurrent_fw_C_kernel(
         tl.program_id(1),
         tl.program_id(2),
     )
+    idx_b_S, end_b_S = 0, S
 
     # create running states in shared memory
     matC_k_val = tl.zeros((siz_b_DHQK, siz_b_DHHV), dtype=tl.float32)
@@ -162,15 +162,22 @@ def mlstm_chunkwise__recurrent_fw_C_kernel(
 
         # load / compute vecA_k, scaG_k
         # last element of vecB in k-th chunk
+        idx_S = k * L * str_vecBI_S + tl.arange(0, L)
+        mask_S = idx_S < end_b_S
+        idx_S_last = tl.minimum(k * L * str_vecBI_S + L, end_b_S) - 1
         vecB_last_k_val = tl.load(
-            vecB + idx_b_BNH * str_vecBI_B_NH + k * str_vecBI_NC + (L - 1)
+            vecB + idx_b_BNH * str_vecBI_B_NH + idx_S_last
         ).to(tl.float32)
         vecB_k_val = tl.load(
-            vecB + idx_b_BNH * str_vecBI_B_NH + k * str_vecBI_NC + tl.arange(0, L)
+            vecB + idx_b_BNH * str_vecBI_B_NH + idx_S,
+            mask=mask_S,
+            other=0.0
         ).to(tl.float32)
 
         vecI_k_val = tl.load(
-            vecI + idx_b_BNH * str_vecBI_B_NH + k * str_vecBI_NC + tl.arange(0, L)
+            vecI + idx_b_BNH * str_vecBI_B_NH + idx_S,
+            mask=mask_S,
+            other=float("-inf"),
         ).to(tl.float32)
 
         vecA_k_val = (vecB_last_k_val - vecB_k_val) + vecI_k_val
@@ -181,8 +188,8 @@ def mlstm_chunkwise__recurrent_fw_C_kernel(
         scaMinter_next_val = tl.maximum(scaG_k_val + scaMinter_k_val, scaAmax_k_val)
 
         # load matK_k, matV_k
-        matK_k_val = tl.load(matK_k_ptr, boundary_check=(0, 1)).to(tl.float32)
-        matV_k_val = tl.load(matV_k_ptr, boundary_check=(0, 1)).to(DTYPE)
+        matK_k_val = tl.load(matK_k_ptr, boundary_check=(0, 1), padding_option="zero").to(tl.float32)
+        matV_k_val = tl.load(matV_k_ptr, boundary_check=(0, 1), padding_option="zero").to(DTYPE)
 
         # matC_k update
         vecAbar_k_val = tl.exp(vecA_k_val - scaMinter_next_val)

@@ -1,10 +1,12 @@
 #  Copyright (c) NXAI GmbH.
 #  This software may be used and distributed according to the terms of the NXAI Community License Agreement.
 
+import triton
 import torch
 from torch.nn.functional import logsigmoid
 
 from ...utils import contiguous_noctx
+from ..triton_xl_chunk.chunkwise_gates import compute_chunkwise_log_gates_vecB
 from .fw_parallel import mlstm_chunkwise__parallel_fw_H
 from .fw_recurrent import mlstm_chunkwise__recurrent_fw_C
 
@@ -38,20 +40,9 @@ def mlstm_chunkwise_fw(
     ),  # all_states (matC_states (B, NH, (NC+1) * DHQK, DHHV), vecN_states (B, NH, (NC+1) * DHQK), scaMinter_states (B, NH, (NC+1)))
 ]:
     B, NH, S, DHQK = matQ.shape
-    DHHV = matV.shape[-1]
-    assert (
-        S % CHUNK_SIZE == 0
-    ), f"Sequence length {S} is not divisible by chunk size {CHUNK_SIZE}."
-    NC = S // CHUNK_SIZE
+    NC = triton.cdiv(S, CHUNK_SIZE)
 
-    # vecI = rearrange(vecI, "b nh (nc l) -> b nh nc l", l=CHUNK_SIZE)
-    # vecF = rearrange(vecF, "b nh (nc l) -> b nh nc l", l=CHUNK_SIZE).to(torch.float32)
-    vecI = vecI.reshape(B, NH, NC, CHUNK_SIZE)
-    vecF = vecF.reshape(B, NH, NC, CHUNK_SIZE).to(torch.float32)
-
-    # compute the gates, the g and the a and b vectors
-    vecF_logsig = logsigmoid(vecF)
-    vecB = vecF_logsig.cumsum(-1)
+    vecB = compute_chunkwise_log_gates_vecB(vecF=vecF, chunk_size=CHUNK_SIZE)
 
     if qk_scale is None:
         qk_scale = DHQK**-0.5

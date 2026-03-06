@@ -18,14 +18,14 @@ def mlstm_chunkwise__parallel_fw_H(
     matC_states: torch.Tensor,  # (B, NH, NC * DHQK, DHHV)
     vecN_states: torch.Tensor,  # (B, NH, NC * DHQK)
     scaMinter_states: torch.Tensor,  # (B, NH, NC)
-    vecI: torch.Tensor,  # (B, NH, NC, L)
-    vecB: torch.Tensor,  # (B, NH, NC, L)
+    vecI: torch.Tensor,  # (B, NH, S)
+    vecB: torch.Tensor,  # (B, NH, S)
     qk_scale: float = None,
     CHUNK_SIZE: int = 64,
     NUM_CHUNKS: int = 1,
     EPS: float = 1e-6,
 ) -> tuple[
-    torch.Tensor, torch.Tensor
+    torch.Tensor, torch.Tensor, torch.Tensor
 ]:  # matH_out (B, NH, S, DHHV), vecN_out (B, NH, S)
     """This function defines the grid and block sizes for the kernel launch and calls the kernel."""
     B, NH, S, DHQK = matK.shape
@@ -79,8 +79,7 @@ def mlstm_chunkwise__parallel_fw_H(
         str_vecNstates_NCDHQK=vecN_states.stride(2),
         str_scaMinterstates_B_NH=scaMinter_states.stride(1),
         str_vecBI_B_NH=vecB.stride(1),
-        str_vecBI_NC=vecB.stride(2),
-        str_vecBI_L=vecB.stride(3),
+        str_vecBI_S=vecB.stride(2),
         str_vecMN_B_NH=vecN_out.stride(1),
         str_vecMN_S=vecN_out.stride(2),
         B=B,

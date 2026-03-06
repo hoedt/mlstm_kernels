@@ -13,8 +13,8 @@ from ...utils import torch2triton_dtype
 def mlstm_chunkwise__recurrent_fw_C(
     matK: torch.Tensor,  # (B, NH, S, DHQK)
     matV: torch.Tensor,  # (B, NH, S, DHHV)
-    vecB: torch.Tensor,  # (B, NH, NC, L)
-    vecI: torch.Tensor,  # (B, NH, NC, L)
+    vecB: torch.Tensor,  # (B, NH, S)
+    vecI: torch.Tensor,  # (B, NH, S)
     matC_states: torch.Tensor = None,  # (B, NH, (NC + 1) * DHQK, DHHV)
     vecN_states: torch.Tensor = None,  # (B, NH, (NC + 1) * DHQK)
     scaMinter_states: torch.Tensor = None,  # (B, NH, (NC + 1)
@@ -98,8 +98,7 @@ def mlstm_chunkwise__recurrent_fw_C(
         str_matV_S=matV.stride(2),
         str_matV_DHHV=matV.stride(3),
         str_vecBI_B_NH=vecB.stride(1),
-        str_vecBI_NC=vecB.stride(2),
-        str_vecBI_L=vecB.stride(3),
+        str_vecBI_S=vecB.stride(2),
         str_matCstates_B_NH=matC_states.stride(1),
         str_matCstates_NCDHQK=matC_states.stride(2),
         str_matCstates_DHHV=matC_states.stride(3),

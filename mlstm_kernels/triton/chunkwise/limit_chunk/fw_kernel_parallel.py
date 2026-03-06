@@ -56,8 +56,7 @@ def mlstm_chunkwise__parallel_fw_H_kernel(
     str_vecNstates_NCDHQK,
     str_scaMinterstates_B_NH,
     str_vecBI_B_NH,
-    str_vecBI_NC,
-    str_vecBI_L,
+    str_vecBI_S,
     str_vecMN_B_NH,
     str_vecMN_S,
     B: tl.constexpr,
@@ -77,15 +76,20 @@ def mlstm_chunkwise__parallel_fw_H_kernel(
         tl.program_id(1),
         tl.program_id(2),
     )
+    idx_b_S, end_b_S = 0, S
 
     # load vecB (L,)
+    idx_S = idx_b_NC * L * str_vecBI_S + tl.arange(0, L)
+    mask_S = idx_S < end_b_S
     vecB_val = tl.load(
-        vecB + idx_b_BNH * str_vecBI_B_NH + idx_b_NC * str_vecBI_NC + tl.arange(0, L)
+        vecB + idx_b_BNH * str_vecBI_B_NH + idx_S,
+        mask=mask_S,
     ).to(tl.float32)
 
     # load vecI (L,)
     vecI_val = tl.load(
-        vecI + idx_b_BNH * str_vecBI_B_NH + idx_b_NC * str_vecBI_NC + tl.arange(0, L)
+        vecI + idx_b_BNH * str_vecBI_B_NH + idx_S,
+        mask=mask_S,
     ).to(tl.float32)
 
     # load scaMinter_km1 (1,)
@@ -95,7 +99,7 @@ def mlstm_chunkwise__parallel_fw_H_kernel(
 
     # compute gate matrix matDbar (L, L)
     idx_mask = tl.arange(0, L)
-    mask = idx_mask[:, None] >= idx_mask[None, :]
+    mask = (idx_mask[:, None] >= idx_mask[None, :]) & mask_S[:, None] & mask_S[None, :]
     matD_full_val = vecB_val[:, None] - vecB_val[None, :] + vecI_val[None, :]
     matD_val = tl.where(mask, matD_full_val, -float("inf"))
 
@@ -151,9 +155,9 @@ def mlstm_chunkwise__parallel_fw_H_kernel(
         )
 
         # load matQ block (L, siz_b_DHQK)
-        matQ_val = tl.load(matQ_ptr, boundary_check=(0, 1)).to(DTYPE)
+        matQ_val = tl.load(matQ_ptr, boundary_check=(0, 1), padding_option="zero").to(DTYPE)
         # load matK transposed block (L, siz_b_DHQK)
-        matK_val = tl.load(matK_ptr, boundary_check=(0, 1)).to(DTYPE)
+        matK_val = tl.load(matK_ptr, boundary_check=(0, 1), padding_option="zero").to(DTYPE)
 
         # accumulate matS (L, L)
         matS_val += tl.dot(matQ_val, matK_val) * qk_scale
@@ -165,7 +169,7 @@ def mlstm_chunkwise__parallel_fw_H_kernel(
         matQbar_val = (matQ_val * vecBbar_val[:, None] * qk_scale).to(DTYPE)
 
         # load matC_kminus1_tile (siz_b_DHQK, siz_b_DHHV)
-        matC_km1_val = tl.load(matC_km1_ptr, boundary_check=(0, 1)).to(DTYPE)
+        matC_km1_val = tl.load(matC_km1_ptr, boundary_check=(0, 1), padding_option="zero").to(DTYPE)
         # accumulate matH_k_inter (L, siz_b_DHHV)
         matH_inter_val += tl.dot(matQbar_val, matC_km1_val)
 
@@ -190,7 +194,7 @@ def mlstm_chunkwise__parallel_fw_H_kernel(
         block_shape=(L, siz_b_DHHV),
         order=(1, 0),
     )
-    matV_val = tl.load(matV_ptr, boundary_check=(0, 1)).to(DTYPE)
+    matV_val = tl.load(matV_ptr, boundary_check=(0, 1), padding_option="zero").to(DTYPE)
 
     # compute matH_k_intra (L, siz_b_DHHV)
     matH_intra_val = tl.dot(matSbar_val, matV_val)
