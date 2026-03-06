@@ -18,6 +18,7 @@ def mlstm_chunkwise__recurrent_fw_C(
     matC_initial: torch.Tensor = None,  # (B, NH, DHQK, DHHV)
     vecN_initial: torch.Tensor = None,  # (B, NH, DHQK)
     scaMinter_initial: torch.Tensor = None,  # (B, NH, 1)
+    cu_seqlens: torch.LongTensor | None = None,
     chunk_size: int = 64,
     num_stages: int | None = None,
     num_warps: int | None = None,
@@ -29,14 +30,14 @@ def mlstm_chunkwise__recurrent_fw_C(
     DHHV = matV.shape[-1]
 
     L = chunk_size
-    NC = triton.cdiv(S, L)
+
+    assert (
+        cu_seqlens is None or B == 1
+    ), "for variable length sequences, batch-size must be one"
 
     assert (
         save_states_every_nth_chunk > 0
     ), "save_states_every_nth_chunk must be positive."
-    assert (
-        save_states_every_nth_chunk <= NC
-    ), "save_states_every_nth_chunk must be <= NC."
 
     assert is_power_of_2(
         save_states_every_nth_chunk
@@ -71,12 +72,25 @@ def mlstm_chunkwise__recurrent_fw_C(
         str_vecNinitial_DHQK = 0
         str_scaMinterinitial_B_NH = 0
 
-    num_chunks_saved = triton.cdiv(NC, save_states_every_nth_chunk)
+    if cu_seqlens is None:
+        cu_chunkcounts = None
+        NC = triton.cdiv(S, L)
+        NB = B
+        num_chunks_saved = 1 + triton.cdiv(NC, save_states_every_nth_chunk)
+    else:
+        seq_lens = torch.diff(cu_seqlens)
+        chunk_counts = triton.cdiv(seq_lens, L)
+        chunk_saved_counts = 1 + triton.cdiv(chunk_counts, save_states_every_nth_chunk)
+        NC = torch.sum(chunk_counts)
+        NB = len(seq_lens)
+        cu_chunkcounts = torch.zeros_like(cu_seqlens)
+        torch.cumsum(chunk_saved_counts, dim=0, out=cu_chunkcounts[1:])
+        num_chunks_saved = cu_chunkcounts[-1]
 
     matC_states = torch.empty(
         B,
         NH,
-        (num_chunks_saved + 1) * DHQK,
+        num_chunks_saved * DHQK,
         DHHV,
         device=matK.device,
         dtype=torch.float32,
@@ -84,15 +98,15 @@ def mlstm_chunkwise__recurrent_fw_C(
     vecN_states = torch.empty(
         B,
         NH,
-        (num_chunks_saved + 1) * DHQK,
+        num_chunks_saved * DHQK,
         device=matK.device,
         dtype=torch.float32,
     )
     scaMinter_states = torch.empty(
-        B, NH, (num_chunks_saved + 1), device=matK.device, dtype=torch.float32
+        B, NH, num_chunks_saved, device=matK.device, dtype=torch.float32
     )
 
-    grid = (num_b_DHQK, num_b_DHHV, B * NH)
+    grid = (num_b_DHQK, num_b_DHHV, NB * NH)
     mlstm_chunkwise__recurrent_fw_C_kernel[grid](
         matK=matK,
         matV=matV,
@@ -104,6 +118,8 @@ def mlstm_chunkwise__recurrent_fw_C(
         matC_initial=matC_initial,
         vecN_initial=vecN_initial,
         scaMinter_initial=scaMinter_initial,
+        cu_seqlens=cu_seqlens,
+        cu_chunkcounts=cu_chunkcounts,
         str_matK_B_NH=matK.stride(1),
         str_matK_S=matK.stride(2),
         str_matK_DHQK=matK.stride(3),
@@ -136,6 +152,7 @@ def mlstm_chunkwise__recurrent_fw_C(
         save_states_every_nth_chunk=save_states_every_nth_chunk,
         USE_INITIAL_STATE=USE_INITIAL_STATE,
         DTYPE=torch2triton_dtype(matK.dtype),
+        IS_VARLEN=cu_seqlens is not None,
         num_stages=num_stages,
         num_warps=num_warps,
     )
