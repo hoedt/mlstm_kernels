@@ -21,6 +21,7 @@ def mlstm_chunkwise__parallel_fw_Hintra(
     matC_states: torch.Tensor,  # (B, NH, (NC+1) * DHQK, DHHV)
     vecN_states: torch.Tensor,  # (B, NH, (NC+1) * DHQK)
     scaMinter_states: torch.Tensor,  # (B, NH, (NC+1))
+    cu_seqlens: torch.LongTensor | None = None,
     qk_scale: float = None,
     chunk_size: int = 64,
     siz_b_LQ: int = 32,
@@ -43,7 +44,6 @@ def mlstm_chunkwise__parallel_fw_Hintra(
     B, NH, S, DHQK = matK.shape
     DHHV = matV.shape[-1]
 
-    NC = triton.cdiv(S, chunk_size)
     L = chunk_size
 
     assert is_power_of_2(L), "Chunk size must be a power of 2."
@@ -77,7 +77,19 @@ def mlstm_chunkwise__parallel_fw_Hintra(
     vecN_out = torch.empty(B, NH, S, device=matQ.device, dtype=output_dtype)
     vecM_out = torch.empty(B, NH, S, device=matQ.device, dtype=output_dtype)
 
-    vecB = compute_chunkwise_log_gates_vecB(vecF=vecF, chunk_size=chunk_size)
+    vecB = compute_chunkwise_log_gates_vecB(vecF=vecF, chunk_size=chunk_size, cu_seqlens=cu_seqlens)
+
+    if cu_seqlens is None:
+        NC = scaMinter_states.shape[-1] - 1
+        idx_map = None
+    else:
+        cu_chunkcounts = torch.zeros_like(cu_seqlens)
+        torch.cumsum(triton.cdiv(torch.diff(cu_seqlens), chunk_size), dim=0, out=cu_chunkcounts[1:])
+        NC = cu_chunkcounts[- 1].item()
+        idx_map = torch.zeros(NC, 2, dtype=torch.long, device=cu_seqlens.device)
+        for i, (offset, end) in enumerate(zip(cu_chunkcounts[:-1], cu_chunkcounts[1:])):
+            idx_map[offset:end, 0] = i
+            torch.arange(0, end - offset, out=idx_map[offset:end, 1])
 
     grid = (num_b_DHHV, num_b_LQ, NC * B * NH)
     # print("grid(num_b_DHHV, num_b_LQ, NC*B*NH)", grid)
@@ -93,6 +105,8 @@ def mlstm_chunkwise__parallel_fw_Hintra(
         matHout=matH_out,
         vecNout=vecN_out,
         vecMout=vecM_out,
+        cu_seqlens=cu_seqlens,
+        idx_map=idx_map,
         qk_scale=qk_scale,
         str_matQK_B_NH=matQ.stride(1),
         str_matQK_S=matQ.stride(2),
@@ -125,6 +139,7 @@ def mlstm_chunkwise__parallel_fw_Hintra(
         OUTPUT_DTYPE=torch2triton_dtype(output_dtype),
         MINIMUM_MAX_VAL=-10.0,
         EPS=eps,
+        IS_VARLEN=cu_seqlens is not None,
         num_stages=num_stages,
         num_warps=num_warps,
     )

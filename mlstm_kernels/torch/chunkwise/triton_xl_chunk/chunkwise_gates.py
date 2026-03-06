@@ -51,20 +51,29 @@ def compute_chunkwise_log_gates_vecB_vecA(
 def compute_chunkwise_log_gates_vecB(
     vecF: torch.Tensor,  # (B, NH, S)
     chunk_size: int,
+    cu_seqlens: torch.LongTensor | None = None,
 ):
-    S = vecF.shape[-1]
-    NC, rest = divmod(S, chunk_size)
-    split = S - rest
+    if cu_seqlens is None:
+        cu_seqlens = (0, vecF.shape[-1])
+    else:
+        cu_seqlens = cu_seqlens.tolist()
 
     # compute vecB
     vecF_logsig = logsigmoid(vecF.to(dtype=torch.float32))
     vecB = torch.empty_like(vecF)
-    torch.cumsum(
-        vecF_logsig[..., :split].unflatten(dim=-1, sizes=(NC, chunk_size)),
-        dim=-1,
-        out=vecB[..., :split].unflatten(dim=-1, sizes=(NC, chunk_size)),
-    )
-    torch.cumsum(vecF_logsig[..., split:], dim=-1, out=vecB[..., split:])
+    for offset, end in zip(cu_seqlens[:-1], cu_seqlens[1:]):
+        S = end - offset
+        NC, rest = divmod(S, chunk_size)
+        split = end - rest
+
+        torch.cumsum(
+            vecF_logsig[..., offset:split].unflatten(dim=-1, sizes=(NC, chunk_size)),
+            dim=-1,
+            out=vecB[..., offset:split].unflatten(dim=-1, sizes=(NC, chunk_size)),
+        )
+        if rest > 0:
+            torch.cumsum(vecF_logsig[..., split:end], dim=-1, out=vecB[..., split:end])
+
     return vecB
 
 

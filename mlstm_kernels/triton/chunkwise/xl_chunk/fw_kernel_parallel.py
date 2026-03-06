@@ -24,6 +24,8 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
     matHout,  # (B, NH, S, DHHV)
     vecNout,  # (B, NH, S)
     vecMout,  # (B, NH, S)
+    cu_seqlens,  # (B + 1, )
+    idx_map,  # (NC, 2)
     qk_scale: tl.constexpr,
     str_matQK_B_NH: tl.constexpr,
     str_matQK_S: tl.constexpr,
@@ -56,6 +58,7 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
     OUTPUT_DTYPE: tl.constexpr = tl.float32,
     EPS: tl.constexpr = 0.0,
     MINIMUM_MAX_VAL: tl.constexpr = -10.0,
+    IS_VARLEN: tl.constexpr = False,
 ):
     # our grid has 4 dimensions: (num_b_DHHV, num_b_LQ, (NC, B * NH))
     idx_b_DHHV, idx_b_LQ, idx_b_NC_BNH = (
@@ -65,19 +68,30 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
     )
     idx_b_NC = idx_b_NC_BNH % NC
     idx_b_BNH = idx_b_NC_BNH // NC
-    idx_b_S, end_b_S = 0, S
+
+    if IS_VARLEN:
+        tl.device_assert(cu_seqlens is not None and idx_map is not None)
+        idx_b_NC_state = idx_b_NC  # global chunk index
+        # retrieve batch- and local chunk-index
+        idx_b_B, idx_b_NC = tl.split(tl.load(idx_map + 2 * idx_b_NC + tl.arange(0, 2)).to(tl.int32))
+        idx_b_S, end_b_S = tl.split(tl.load(cu_seqlens + idx_b_B + tl.arange(0, 2)).to(tl.int32))
+        S = end_b_S - idx_b_S
+        idx_b_NC_state += idx_b_B  # skip final state
+    else:
+        idx_b_NC_state = idx_b_NC
+        idx_b_S, end_b_S = 0, S
 
     # inititalize  vecM states
     vecM_old_val = tl.zeros([siz_b_LQ], dtype=tl.float32) - float("inf")
     vecM_new_val = tl.zeros([siz_b_LQ], dtype=tl.float32) - float("inf")
 
     # gate pointers for the current thread block
-    vecB_ptr = vecB + idx_b_BNH * str_vecBI_B_NH + idx_b_NC * L * str_vecBI_S
-    vecI_ptr = vecI + idx_b_BNH * str_vecBI_B_NH + idx_b_NC * L * str_vecBI_S
+    vecB_ptr = vecB + idx_b_BNH * str_vecBI_B_NH + idx_b_S + idx_b_NC * L * str_vecBI_S
+    vecI_ptr = vecI + idx_b_BNH * str_vecBI_B_NH + idx_b_S + idx_b_NC * L * str_vecBI_S
 
     # load vecB_LQ (siz_b_LQ,)
     idx_LQ = tl.arange(0, siz_b_LQ)
-    mask_LQ = (idx_b_NC * NC + idx_b_LQ * siz_b_LQ + idx_LQ < end_b_S)
+    mask_LQ = (idx_b_S + idx_b_NC * L * str_vecBI_S + idx_b_LQ * siz_b_LQ + idx_LQ < end_b_S)
     vecB_LQ_val = tl.load(
         vecB_ptr + idx_b_LQ * siz_b_LQ + idx_LQ,
         mask=mask_LQ,
@@ -104,7 +118,7 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
         for idx_b_DHQK in range(tl.cdiv(DHQK, siz_b_DHQK)):
             # load matQ block (siz_b_LQ, siz_b_DHQK)
             matQ_ptr = tl.make_block_ptr(
-                base=matQ + idx_b_BNH * str_matQK_B_NH,
+                base=matQ + idx_b_BNH * str_matQK_B_NH + idx_b_S * str_matQK_S,
                 shape=(S, DHQK),
                 strides=(str_matQK_S, str_matQK_DHQK),
                 offsets=(idx_b_NC * L + idx_b_LQ * siz_b_LQ, idx_b_DHQK * siz_b_DHQK),
@@ -114,7 +128,7 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
             matQ_val = tl.load(matQ_ptr, boundary_check=(0, 1), padding_option="zero").to(DTYPE)
             # load matK transposed block (siz_b_DHQK, siz_b_LKV)
             matK_ptr = tl.make_block_ptr(
-                base=matK + idx_b_BNH * str_matQK_B_NH,
+                base=matK + idx_b_BNH * str_matQK_B_NH + idx_b_S * str_matQK_S,
                 shape=(DHQK, S),
                 strides=(str_matQK_DHQK, str_matQK_S),
                 offsets=(idx_b_DHQK * siz_b_DHQK, idx_b_NC * L + idx_b_LKV * siz_b_LKV),
@@ -128,7 +142,7 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
 
         # load vecB_LKV (siz_B_LKV,)
         idx_LKV = tl.arange(0, siz_b_LKV)
-        mask_LKV = idx_b_NC * L * str_vecBI_S + idx_b_LKV * siz_b_LKV + idx_LKV < end_b_S
+        mask_LKV = idx_b_S + idx_b_NC * L * str_vecBI_S + idx_b_LKV * siz_b_LKV + idx_LKV < end_b_S
         vecB_LKV = tl.load(
             vecB_ptr + idx_b_LKV * siz_b_LKV + idx_LKV,
             mask=mask_LKV,
@@ -172,7 +186,7 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
 
         # load matV (siz_b_LKV, siz_b_DHHV)
         matV_ptr = tl.make_block_ptr(
-            base=matV + idx_b_BNH * str_matHV_B_NH,
+            base=matV + idx_b_BNH * str_matHV_B_NH + idx_b_S * str_matHV_S,
             shape=(S, DHHV),
             strides=(str_matHV_S, str_matHV_DHHV),
             offsets=(idx_b_NC * L + idx_b_LKV * siz_b_LKV, idx_b_DHHV * siz_b_DHHV),
@@ -192,7 +206,7 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
     # compute vecM_combine (siz_b_LQ,)
     # load scaM_inter (1,)
     scaM_inter_km1_ptr = (
-        scaMinter_states + idx_b_BNH * str_scaMinterstates_B_NH + idx_b_NC
+        scaMinter_states + idx_b_BNH * str_scaMinterstates_B_NH + idx_b_NC_state
     )
     scaM_inter_km1_val = tl.load(scaM_inter_km1_ptr).to(tl.float32)
     # vecM_intra = vecM_new_val
@@ -209,7 +223,7 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
     vecN_inter_acc = tl.zeros([siz_b_LQ], dtype=tl.float32)
     for idx_b_DHQK in range(tl.cdiv(DHQK, siz_b_DHQK)):
         matQ_ptr = tl.make_block_ptr(
-            base=matQ + idx_b_BNH * str_matQK_B_NH,
+            base=matQ + idx_b_BNH * str_matQK_B_NH + idx_b_S * str_matQK_S,
             shape=(S, DHQK),
             strides=(str_matQK_S, str_matQK_DHQK),
             offsets=(idx_b_NC * L + idx_b_LQ * siz_b_LQ, idx_b_DHQK * siz_b_DHQK),
@@ -217,7 +231,7 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
             order=(1, 0),
         )
         matC_km1_ptr = tl.make_block_ptr(
-            base=matC_states + idx_b_BNH * str_matCstates_B_NH + idx_b_NC * DHQK * DHHV,
+            base=matC_states + idx_b_BNH * str_matCstates_B_NH + idx_b_NC_state * DHQK * DHHV,
             shape=(DHQK, DHHV),
             strides=(str_matCstates_NCDHQK, str_matCstates_DHHV),
             offsets=(idx_b_DHQK * siz_b_DHQK, idx_b_DHHV * siz_b_DHHV),
@@ -227,7 +241,7 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
         vecN_km1_ptr = (
             vecN_states
             + idx_b_BNH * str_vecNstates_B_NH
-            + idx_b_NC * DHQK
+            + idx_b_NC_state * DHQK
             + idx_b_DHQK * siz_b_DHQK
             + tl.arange(0, siz_b_DHQK)
         )
@@ -267,7 +281,7 @@ def mlstm_chunkwise__parallel_fw_Hintra_kernel(
 
     # store matHout (size_b_LQ, siz_b_DHHV)
     matHout_ptr = tl.make_block_ptr(
-        base=matHout + idx_b_BNH * str_matHV_B_NH,
+        base=matHout + idx_b_BNH * str_matHV_B_NH + idx_b_S * str_matHV_S,
         shape=(S, DHHV),
         strides=(str_matHV_S, str_matHV_DHHV),
         offsets=(idx_b_NC * L + idx_b_LQ * siz_b_LQ, idx_b_DHHV * siz_b_DHHV),
