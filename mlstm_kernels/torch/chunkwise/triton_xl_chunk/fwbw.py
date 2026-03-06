@@ -28,6 +28,7 @@ def _mlstm_chunkwise_fwbw_generator(autocast_kernel_dtype=torch.bfloat16) -> Cal
             matC_initial: torch.Tensor = None,  # (B, NH, DHQK, DHV)
             vecN_initial: torch.Tensor = None,  # (B, NH, DHQK)
             scaM_initial: torch.Tensor = None,  # (B, NH, 1)
+            cu_seqlens: torch.LongTensor | None = None,
             qk_scale: float = None,
             return_last_states: bool = False,
             eps: float = 0.0,
@@ -57,6 +58,7 @@ def _mlstm_chunkwise_fwbw_generator(autocast_kernel_dtype=torch.bfloat16) -> Cal
                 matC_initial=matC_initial,
                 vecN_initial=vecN_initial,
                 scaM_initial=scaM_initial,
+                cu_seqlens=cu_seqlens,
                 qk_scale=qk_scale,
                 return_last_states=return_last_states,
                 return_all_states=(not recompute_states_in_bw),
@@ -99,6 +101,7 @@ def _mlstm_chunkwise_fwbw_generator(autocast_kernel_dtype=torch.bfloat16) -> Cal
                 scaM_all,
                 vecN_out,
                 vecM_out,
+                cu_seqlens,
                 torch.tensor(qk_scale),
                 torch.tensor(chunk_size),
                 tensor_or_none(chunk_size_inter),
@@ -135,6 +138,7 @@ def _mlstm_chunkwise_fwbw_generator(autocast_kernel_dtype=torch.bfloat16) -> Cal
                 scaM_all,
                 vecN_out,
                 vecM_out,
+                cu_seqlens,
                 qk_scale,
                 chunk_size,
                 chunk_size_inter,
@@ -149,6 +153,9 @@ def _mlstm_chunkwise_fwbw_generator(autocast_kernel_dtype=torch.bfloat16) -> Cal
                 num_stages_inter,
                 eps,
             ) = ctx.saved_tensors
+
+            if cu_seqlens is not None:
+                raise NotImplementedError("variable length training not supported yet")
 
             (
                 matDeltaQ,
@@ -250,6 +257,7 @@ def mlstm_chunkwise__xl_chunk(
     c_initial: torch.Tensor = None,  # (B, NH, DHQK, DHHV)
     n_initial: torch.Tensor = None,  # (B, NH, DHQK)
     m_initial: torch.Tensor = None,  # (B, NH, 1)
+    cu_seqlens: torch.LongTensor | None = None,
     return_last_states: bool = False,
     eps: float = 1e-6,
     chunk_size: int = 128,
@@ -278,6 +286,7 @@ def mlstm_chunkwise__xl_chunk(
         c_initial,
         n_initial,
         m_initial,
+        cu_seqlens,
         None,  # qk_scale always the default value
         return_last_states,
         eps,

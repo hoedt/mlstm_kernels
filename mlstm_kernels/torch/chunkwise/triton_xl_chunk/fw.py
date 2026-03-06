@@ -26,6 +26,7 @@ def mlstm_chunkwise_fw(
     matC_initial: torch.Tensor = None,  # (B, NH, DHQK, DHHV)
     vecN_initial: torch.Tensor = None,  # (B, NH, DHQK)
     scaM_initial: torch.Tensor = None,  # (B, NH, 1)
+    cu_seqlens: torch.LongTensor | None = None,
     qk_scale: float = None,
     return_last_states: bool = False,
     return_all_states: bool = False,
@@ -79,6 +80,7 @@ def mlstm_chunkwise_fw(
         matC_initial=matC_initial,
         vecN_initial=vecN_initial,
         scaMinter_initial=scaM_initial,
+        cu_seqlens=cu_seqlens,
         chunk_size=kernel_chunk_params.chunk_size_inter,
         save_states_every_nth_chunk=kernel_chunk_params.save_states_every_nth_chunk,
         num_stages=num_stages_inter,
@@ -95,6 +97,7 @@ def mlstm_chunkwise_fw(
         matC_states=matC_k_states,
         vecN_states=vecN_k_states,
         scaMinter_states=scaMinter_k_states,
+        cu_seqlens=cu_seqlens,
         qk_scale=qk_scale,
         chunk_size=kernel_chunk_params.chunk_size_intra,
         siz_b_LQ=kernel_chunk_params.siz_b_L_parallel,
@@ -113,6 +116,12 @@ def mlstm_chunkwise_fw(
         vecM_out,
     )
     if return_last_states:
+        if cu_seqlens is not None:
+            # transform states to expected shape
+            matC_k_states = matC_k_states.view(NH, B, -1, DHHV).tranpose(0, 1)
+            vecN_k_states = vecN_k_states.view(NH, B, -1).transpose(0, 1)
+            scaMinter_k_states = scaMinter_k_states.view(NH, B, -1).transpose(0, 1)
+
         # Note: we need to make the states contiguous here, because the last states are not contiguous
         # if we return a slice of the larger tensor.
         # For generation afterwards we will use these state tensors and update them in place.
